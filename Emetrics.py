@@ -1,8 +1,8 @@
-import numpy as np
-import subprocess
 from math import sqrt
-from sklearn.metrics import average_precision_score
+
+import numpy as np
 from scipy import stats
+from sklearn.metrics import average_precision_score
 
 
 def get_aupr(Y, P, threshold=7.0):
@@ -20,7 +20,7 @@ def get_cindex(Y, P):
     for i in range(1, len(Y)):
         for j in range(0, i):
             if i is not j:
-                if (Y[i] > Y[j]):
+                if Y[i] > Y[j]:
                     pair += 1
                     summ += 1 * (P[i] > P[j]) + 0.5 * (P[i] == P[j])
 
