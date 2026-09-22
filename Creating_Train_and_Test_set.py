@@ -39,9 +39,8 @@ def load_ligand_gml(file_path):
     for node, data in graph.nodes(data=True):
         features.append(list(map(float, data["feature"].split(","))))
     for source, target in graph.edges:
-        edge_index.append(
-            [int(source), int(target)]
-        )
+        edge_index.append([int(source), int(target)])
+        edge_index.append([int(target), int(source)])
     return len(features), features, edge_index
 
 
@@ -50,13 +49,10 @@ def load_protein_gml(file_path):
     features = []
     edge_index = []
     for node, data in graph.nodes(data=True):
-        features.append(
-            list(map(float, data["features"][1:-1].split(",")))
-        )
+        features.append(list(map(float, data["features"][1:-1].split(","))))
     for source, target in graph.edges:
-        edge_index.append(
-            [int(source), int(target)]
-        )
+        edge_index.append([int(source), int(target)])
+        edge_index.append([int(target), int(source)])
     return len(features), features, edge_index
 
 
@@ -113,7 +109,11 @@ def create_dataset_for_5folds(dataset_name, combine_all=False, fold_idx=0):
             )
 
         val_idx = fold_indices[fold_idx]
-        train_idx = [i for i in range(len(ligands)) if i not in val_idx]
+        # Train on the other folds only. Ranging over the full dataset would pull the
+        # held-out test rows, which are absent from the fold file, into every fold.
+        train_idx = [
+            i for n, fold in enumerate(fold_indices) if n != fold_idx for i in fold
+        ]
 
     train_ligands = np.array(ligands)[train_idx]
     train_proteins = np.array(proteins)[train_idx]
