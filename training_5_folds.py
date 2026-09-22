@@ -14,10 +14,12 @@ LR = 0.001
 NUM_EPOCHS = 2000
 # Checkpoint cadence in epochs.
 CHECKPOINT_EVERY_EPOCHS = 1
+EARLY_STOP_PATIENCE = 100
 
 print("Dataset: ", dataset)
 print("Learning rate: ", LR)
 print("Epochs: ", NUM_EPOCHS)
+print("Early stop patience: ", EARLY_STOP_PATIENCE)
 
 PATHS = paths_for(dataset)
 models_dir = PATHS.models
@@ -30,7 +32,7 @@ if not os.path.exists(models_dir):
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Force using CPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 for fold in folds:
@@ -90,3 +92,12 @@ for fold in folds:
                 best_mse,
                 best_epoch,
             )
+
+        # Derived from best_epoch, so it survives a resume.
+        stale_epochs = (epoch + 1) - best_epoch
+        if best_epoch > 0 and stale_epochs >= EARLY_STOP_PATIENCE:
+            print(
+                f"Early stopping fold {fold} at epoch {epoch + 1}: no improvement for "
+                f"{stale_epochs} epochs (best MSE {best_mse} at epoch {best_epoch})"
+            )
+            break
