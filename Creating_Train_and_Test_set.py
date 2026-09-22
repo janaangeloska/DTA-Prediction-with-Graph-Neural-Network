@@ -1,17 +1,22 @@
+import glob
+import hashlib
+import json
+import os
+import re
+
+import networkx as nx
 import numpy as np
 import pandas as pd
-from paste import DTADataset  # Ensure `paste` library and `DTADataset` are imported correctly
-import networkx as nx
-import os
-import glob
-import re
-import hashlib
 
-ligand_folder = 'path_to_the_drug_graphs'
-protein_folder = 'path_to_the_protein_graphs'
-csv_file = 'path_to_the_datset'
-train_fold_file = 'path_to_the_folds_for_training'
-test_fold_file = 'path_to_the_folds_for_test'
+from DTADataset import DTADataset
+from Paths import paths_for
+
+PATHS = paths_for("davis")
+ligand_folder = PATHS.ligand_graphs
+protein_folder = PATHS.protein_graph_gml
+csv_file = PATHS.csv
+train_fold_file = PATHS.train_folds
+test_fold_file = PATHS.test_fold
 
 
 def sanitize_filename_KIBA(smile):
@@ -20,36 +25,43 @@ def sanitize_filename_KIBA(smile):
 
 
 def sanitize_filename_DAVIS(name):
-    return re.sub(r'[\\/*?:"<>|]', '_', name)
-  
+    return re.sub(r'[\\/*?:"<>|]', "_", name)
+
 
 def sanitize_protein_filename(filename):
-    return re.sub(r'_contact_map_graph\.gml$', '', filename)
-  
+    return re.sub(r"_contact_map_graph\.gml$", "", filename)
+
 
 def load_ligand_gml(file_path):
     graph = nx.read_gml(file_path)
     features = []
     edge_index = []
     for node, data in graph.nodes(data=True):
-        features.append(list(map(float, data['feature'].split(','))))
+        features.append(list(map(float, data["feature"].split(","))))
     for source, target in graph.edges:
-        edge_index.append([int(source), int(target)])  # Ensure edge pairs are lists of integers
+        edge_index.append(
+            [int(source), int(target)]
+        )
     return len(features), features, edge_index
+
 
 def load_protein_gml(file_path):
     graph = nx.read_gml(file_path)
     features = []
     edge_index = []
     for node, data in graph.nodes(data=True):
-        features.append(list(map(float, data['features'][1:-1].split(','))))  # Strip brackets, split, and parse
+        features.append(
+            list(map(float, data["features"][1:-1].split(",")))
+        )
     for source, target in graph.edges:
-        edge_index.append([int(source), int(target)])  # Ensure edge pairs are lists of integers
+        edge_index.append(
+            [int(source), int(target)]
+        )
     return len(features), features, edge_index
 
 
-ligand_files = glob.glob(os.path.join(ligand_folder, '*.gml'))
-protein_files = glob.glob(os.path.join(protein_folder, '*.gml'))
+ligand_files = glob.glob(os.path.join(ligand_folder, "*.gml"))
+protein_files = glob.glob(os.path.join(protein_folder, "*.gml"))
 
 smile_graph = {}
 target_graph = {}
@@ -57,7 +69,7 @@ target_graph = {}
 
 for ligand_file in ligand_files:
     base_name = os.path.basename(ligand_file)
-    ligand_name = base_name.replace('.gml', '')
+    ligand_name = base_name.replace(".gml", "")
     smile_graph[ligand_name] = load_ligand_gml(ligand_file)
 
 
@@ -68,26 +80,19 @@ for protein_file in protein_files:
 
 
 data_df = pd.read_csv(csv_file)
-data_df['ligands'] = data_df['ligand'].apply(sanitize_filename_DAVIS)
+data_df["ligands"] = data_df["ligand"].apply(sanitize_filename_DAVIS)
 
-ligands = data_df['ligands'].tolist()
-proteins = data_df['protein'].apply(sanitize_protein_filename).tolist()
-labels = data_df['label'].tolist()
+ligands = data_df["ligands"].tolist()
+proteins = data_df["protein"].apply(sanitize_protein_filename).tolist()
+labels = data_df["label"].tolist()
 
 
 def load_fold_indices(train_fold_file, num_folds=5):
-    with open(train_fold_file, 'r') as f:
-        content = f.read().strip()
-        content = content.replace('[', '').replace(']', '').replace(' ', '')
-        all_indices = list(map(int, content.split(',')))
-
-        fold_size = len(all_indices) // num_folds
-        fold_indices = [all_indices[i * fold_size: (i + 1) * fold_size] for i in range(num_folds)]
-
-        remaining_indices = all_indices[num_folds * fold_size:]
-        for i in range(len(remaining_indices)):
-            fold_indices[i].append(remaining_indices[i])
-
+    with open(train_fold_file, "r") as f:
+        fold_indices = json.load(f)
+    assert len(fold_indices) == num_folds, (
+        f"Expected {num_folds} folds, got {len(fold_indices)}"
+    )
     return fold_indices
 
 
@@ -103,7 +108,9 @@ def create_dataset_for_5folds(dataset_name, combine_all=False, fold_idx=0):
         val_idx = []  # No validation set in this case
     else:
         if fold_idx >= len(fold_indices):
-            raise ValueError(f"Fold index {fold_idx} out of range. There are only {len(fold_indices)} folds.")
+            raise ValueError(
+                f"Fold index {fold_idx} out of range. There are only {len(fold_indices)} folds."
+            )
 
         val_idx = fold_indices[fold_idx]
         train_idx = [i for i in range(len(ligands)) if i not in val_idx]
@@ -119,37 +126,37 @@ def create_dataset_for_5folds(dataset_name, combine_all=False, fold_idx=0):
         val_labels = np.array(labels)[val_idx]
 
     train_dataset = DTADataset(
-        root='/tmp',
-        dataset=dataset_name + '_train',
+        root="/tmp",
+        dataset=dataset_name + "_train",
         xd=train_ligands.tolist(),
         y=train_labels.tolist(),
         smile_graph=smile_graph,
         target_key=train_proteins.tolist(),
-        target_graph=target_graph
+        target_graph=target_graph,
     )
 
     val_dataset = None
     if not combine_all:
         # Validation dataset
         val_dataset = DTADataset(
-            root='/tmp',
-            dataset=dataset_name + '_valid',
+            root="/tmp",
+            dataset=dataset_name + "_valid",
             xd=val_ligands.tolist(),
             y=val_labels.tolist(),
             smile_graph=smile_graph,
             target_key=val_proteins.tolist(),
-            target_graph=target_graph
+            target_graph=target_graph,
         )
 
     return train_dataset, val_dataset
 
 
 def load_test_indices(test_fold_file):
-    with open(test_fold_file, 'r') as f:
+    with open(test_fold_file, "r") as f:
         content = f.read().strip()
         # Parse test indices
-        content = content.replace('[', '').replace(']', '').replace(' ', '')
-        test_indices = list(map(int, content.split(',')))
+        content = content.replace("[", "").replace("]", "").replace(" ", "")
+        test_indices = list(map(int, content.split(",")))
     return test_indices
 
 
@@ -162,16 +169,14 @@ def create_test_dataset(dataset_name):
     test_labels = np.array(labels)[test_indices]
 
     test_dataset = DTADataset(
-        root='/tmp',
-        dataset=dataset_name + '_test',
+        root="/tmp",
+        dataset=dataset_name + "_test",
         xd=test_ligands.tolist(),
         y=test_labels.tolist(),
         smile_graph=smile_graph,
         target_key=test_proteins.tolist(),
-        target_graph=target_graph
+        target_graph=target_graph,
     )
 
     print(f"Test dataset created with {len(test_indices)} samples.")
     return test_dataset
-
-
