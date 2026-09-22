@@ -1,6 +1,7 @@
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 
 from Creating_Train_and_Test_set import create_test_dataset
@@ -33,30 +34,37 @@ def predicting(model, device, loader):
     return total_labels.numpy().flatten(), total_preds.numpy().flatten()
 
 
-def calculate_metrics(Y, P, dataset="davis"):
-    cindex = get_cindex(Y, P)
-    cindex2 = get_ci(Y, P)
-    rm2 = get_rm2(Y, P)
-    mse = get_mse(Y, P)
-    pearson = get_pearson(Y, P)
-    spearman = get_spearman(Y, P)
-    rmse = get_rmse(Y, P)
-
-    print(f"Metrics for {dataset}:")
-    print(f"cindex: {cindex}")
-    print(f"cindex2: {cindex2}")
-    print(f"rm2: {rm2}")
-    print(f"mse: {mse}")
-    print(f"pearson: {pearson}")
-
-    result_file_name = os.path.join(results_path, f"result_{model_st}_{dataset}.txt")
-    result_str = f"{dataset}\nrmse: {rmse} mse: {mse} pearson: {pearson} spearman: {spearman} ci: {cindex} rm2: {rm2}"
-    print(result_str)
-    with open(result_file_name, "w") as file:
-        file.write(result_str)
+METRIC_NAMES = ["rmse", "mse", "pearson", "spearman", "ci", "cindex", "rm2"]
 
 
-def plot_density(Y, P, dataset="davis"):
+def calculate_metrics(Y, P):
+    return {
+        "rmse": get_rmse(Y, P),
+        "mse": get_mse(Y, P),
+        "pearson": get_pearson(Y, P),
+        "spearman": get_spearman(Y, P),
+        "ci": get_ci(Y, P),
+        "cindex": get_cindex(Y, P),
+        "rm2": get_rm2(Y, P),
+    }
+
+
+def format_report(per_fold, dataset):
+    folds = sorted(per_fold)
+    lines = [f"{dataset}  folds evaluated: {folds}", ""]
+    for fold in folds:
+        row = "  ".join(f"{n}: {per_fold[fold][n]:.4f}" for n in METRIC_NAMES)
+        lines.append(f"fold {fold}  {row}")
+    lines.append("")
+    for name in METRIC_NAMES:
+        values = np.array([per_fold[f][name] for f in folds], dtype=float)
+        # Sample std across folds; undefined for a single fold.
+        std = values.std(ddof=1) if len(values) > 1 else float("nan")
+        lines.append(f"{name:9s} mean: {values.mean():.4f}  std: {std:.4f}")
+    return "\n".join(lines)
+
+
+def plot_density(Y, P, dataset, results_path, fold):
     plt.figure(figsize=(10, 5))
     plt.grid(linestyle="--")
     ax = plt.gca()
@@ -73,41 +81,59 @@ def plot_density(Y, P, dataset="davis"):
     ltext = leg.get_texts()
     plt.setp(ltext, fontsize=12, fontweight="bold")
     plt.savefig(
-        os.path.join(results_path, f"{dataset}.png"), dpi=500, bbox_inches="tight"
+        os.path.join(results_path, f"{dataset}_fold{fold}.png"),
+        dpi=500,
+        bbox_inches="tight",
     )
+    plt.close()
 
 
 if __name__ == "__main__":
     dataset = "davis"
     cuda_name = "cuda:0"
-    print(f"dataset: {dataset}")
-    print(f"cuda_name: {cuda_name}")
-
     TEST_BATCH_SIZE = 512
-    TEST_FOLD = 0
+    FOLDS = [0, 1, 2, 3, 4]
+
     model_st = GNNNet.__name__
     PATHS = paths_for(dataset)
-    model_file_name = os.path.join(
-        PATHS.models, f"model_{model_st}_{dataset}_{TEST_FOLD}.model"
-    )
     results_path = PATHS.results
     os.makedirs(results_path, exist_ok=True)
-
     device = torch.device(cuda_name if torch.cuda.is_available() else "cpu")
 
-    result_file_name = os.path.join(
-        results_path, f"result_{GNNNet.__name__}_{dataset}.txt"
-    )
+    print(f"dataset: {dataset}")
+    print(f"device: {device}")
 
     test_data = create_test_dataset(dataset)
     test_loader = torch.utils.data.DataLoader(
         test_data, batch_size=TEST_BATCH_SIZE, shuffle=False, collate_fn=collate
     )
 
-    model = GNNNet()
-    model.to(device)
-    model.load_state_dict(torch.load(model_file_name, map_location=device))
+    per_fold = {}
+    for fold in FOLDS:
+        model_file_name = os.path.join(
+            PATHS.models, f"model_{model_st}_{dataset}_{fold}.model"
+        )
+        if not os.path.exists(model_file_name):
+            print(f"Fold {fold}: no model at {model_file_name}, skipping.")
+            continue
 
-    Y, P = predicting(model, device, test_loader)
-    calculate_metrics(Y, P, dataset)
-    plot_density(Y, P, dataset)
+        model = GNNNet().to(device)
+        model.load_state_dict(torch.load(model_file_name, map_location=device))
+        Y, P = predicting(model, device, test_loader)
+
+        per_fold[fold] = calculate_metrics(Y, P)
+        print(f"Fold {fold} metrics:")
+        for name in METRIC_NAMES:
+            print(f"  {name}: {per_fold[fold][name]}")
+        plot_density(Y, P, dataset, results_path, fold)
+
+    if not per_fold:
+        raise SystemExit("No fold models found, nothing to evaluate.")
+
+    report = format_report(per_fold, dataset)
+    print()
+    print(report)
+    result_file_name = os.path.join(results_path, f"result_{model_st}_{dataset}.txt")
+    with open(result_file_name, "w") as file:
+        file.write(report + "\n")
+    print(f"\nWrote {result_file_name}")
