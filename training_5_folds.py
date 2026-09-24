@@ -1,3 +1,5 @@
+import gc
+
 from Checkpointing import checkpoint_path, load_checkpoint, save_checkpoint
 from Creating_Train_and_Test_set import create_dataset_for_5folds
 from DTADataset import *
@@ -101,3 +103,6 @@ for fold in folds:
                 f"{stale_epochs} epochs (best MSE {best_mse} at epoch {best_epoch})"
             )
             break
+
+    del train_loader, valid_loader, train_data, valid_data, model, optimizer
+    gc.collect()

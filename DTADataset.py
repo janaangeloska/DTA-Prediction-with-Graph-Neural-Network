@@ -51,30 +51,46 @@ class DTADataset(InMemoryDataset):
         data_list_mol = []
         data_list_pro = []
         data_len = len(xd)
+        # Each protein recurs across ~45 rows and each ligand across ~295. Build the
+        # tensors once per unique key and let the per-row Data objects share them;
+        # only the label differs per row.
+        mol_cache = {}
+        pro_cache = {}
         for i in range(data_len):
             smiles = xd[i]
             tar_key = target_key[i]
             labels = y[i]
-            # convert SMILES to molecular representation using rdkit
-            c_size, features, edge_index = smile_graph[smiles]
-            target_size, target_features, target_edge_index = target_graph[tar_key]
-            # print(np.array(features).shape, np.array(edge_index).shape)
-            # print(target_features.shape, target_edge_index.shape)
-            # make the graph ready for PyTorch Geometrics GCN algorithms:
+            if smiles not in mol_cache:
+                c_size, features, edge_index = smile_graph[smiles]
+                mol_cache[smiles] = (
+                    torch.Tensor(features),
+                    torch.LongTensor(edge_index).transpose(1, 0),
+                    torch.LongTensor([c_size]),
+                )
+            if tar_key not in pro_cache:
+                target_size, target_features, target_edge_index = target_graph[tar_key]
+                pro_cache[tar_key] = (
+                    torch.Tensor(target_features),
+                    torch.LongTensor(target_edge_index).transpose(1, 0),
+                    torch.LongTensor([target_size]),
+                )
+
+            mol_x, mol_edge_index, mol_size = mol_cache[smiles]
+            pro_x, pro_edge_index, pro_size = pro_cache[tar_key]
+
             GCNData_mol = DATA.Data(
-                x=torch.Tensor(features),
-                edge_index=torch.LongTensor(edge_index).transpose(1, 0),
+                x=mol_x,
+                edge_index=mol_edge_index,
                 y=torch.FloatTensor([labels]),
             )
-            GCNData_mol.__setitem__("c_size", torch.LongTensor([c_size]))
+            GCNData_mol.__setitem__("c_size", mol_size)
 
             GCNData_pro = DATA.Data(
-                x=torch.Tensor(target_features),
-                edge_index=torch.LongTensor(target_edge_index).transpose(1, 0),
+                x=pro_x,
+                edge_index=pro_edge_index,
                 y=torch.FloatTensor([labels]),
             )
-            GCNData_pro.__setitem__("target_size", torch.LongTensor([target_size]))
-            # print(GCNData.target.size(), GCNData.target_edge_index.size(), GCNData.target_x.size())
+            GCNData_pro.__setitem__("target_size", pro_size)
             data_list_mol.append(GCNData_mol)
             data_list_pro.append(GCNData_pro)
 
