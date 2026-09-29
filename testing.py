@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ from Emetrics import (
 )
 from GNNNet import GNNNet
 from Paths import paths_for
+from Seeding import SEED, set_seed
 
 
 def predicting(model, device, loader):
@@ -49,9 +51,16 @@ def calculate_metrics(Y, P):
     }
 
 
-def format_report(per_fold, dataset):
+def format_report(per_fold: dict, dataset: str) -> str:
     folds = sorted(per_fold)
-    lines = [f"{dataset}  folds evaluated: {folds}", ""]
+    lines = [
+        f"{dataset}  folds evaluated: {folds}",
+        (
+            "ci (all pairs) is the value to compare with published numbers; cindex "
+            "only counts pairs whose larger label has the larger row index."
+        ),
+        "",
+    ]
     for fold in folds:
         row = "  ".join(f"{n}: {per_fold[fold][n]:.4f}" for n in METRIC_NAMES)
         lines.append(f"fold {fold}  {row}")
@@ -89,6 +98,17 @@ def plot_density(Y, P, dataset, results_path, fold):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Score trained GNNNet models on the test set."
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Score the full-data model instead of the five fold models.",
+    )
+    args = parser.parse_args()
+
+    set_seed(SEED)
     dataset = "davis"
     cuda_name = "cuda:0"
     TEST_BATCH_SIZE = 512
@@ -102,14 +122,22 @@ if __name__ == "__main__":
 
     print(f"dataset: {dataset}")
     print(f"device: {device}")
+    print(f"seed: {SEED}")
 
     test_data = create_test_dataset(dataset)
     test_loader = torch.utils.data.DataLoader(
         test_data, batch_size=TEST_BATCH_SIZE, shuffle=False, collate_fn=collate
     )
 
+    if args.full:
+        fold_labels = ["full"]
+        result_suffix = "_full"
+    else:
+        fold_labels = FOLDS
+        result_suffix = ""
+
     per_fold = {}
-    for fold in FOLDS:
+    for fold in fold_labels:
         model_file_name = os.path.join(
             PATHS.models, f"model_{model_st}_{dataset}_{fold}.model"
         )
@@ -133,7 +161,9 @@ if __name__ == "__main__":
     report = format_report(per_fold, dataset)
     print()
     print(report)
-    result_file_name = os.path.join(results_path, f"result_{model_st}_{dataset}.txt")
+    result_file_name = os.path.join(
+        results_path, f"result_{model_st}_{dataset}{result_suffix}.txt"
+    )
     with open(result_file_name, "w") as file:
         file.write(report + "\n")
     print(f"\nWrote {result_file_name}")

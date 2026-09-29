@@ -199,8 +199,6 @@ def process_ligands_from_dataset(file_path, output_dir):
     print(f"Graph data saved to {output_path}")
 
 
-PATHS = paths_for("davis")
-file_path = PATHS.csv
-output_dir = PATHS.dataset_dir
-
-process_ligands_from_dataset(file_path, output_dir)
+if __name__ == "__main__":
+    PATHS = paths_for("davis")
+    process_ligands_from_dataset(PATHS.csv, PATHS.dataset_dir)
