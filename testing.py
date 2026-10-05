@@ -1,18 +1,31 @@
+import argparse
 import os
-import torch
-import numpy as np
+
 import matplotlib.pyplot as plt
-from torch_geometric.data import Batch
-from Emetrics import get_cindex, get_ci, get_rm2, get_mse, get_rmse, get_pearson, get_spearman
-from DTADataset import *
-from GNNNet import GNNNet
+import numpy as np
+import torch
+
 from Creating_Train_and_Test_set import create_test_dataset
+from DTADataset import *
+from Emetrics import (
+    get_ci,
+    get_cindex,
+    get_mse,
+    get_pearson,
+    get_rm2,
+    get_rmse,
+    get_spearman,
+)
+from GNNNet import GNNNet
+from Paths import paths_for
+from Seeding import SEED, set_seed
+
 
 def predicting(model, device, loader):
     model.eval()
     total_preds = torch.Tensor()
     total_labels = torch.Tensor()
-    print(f'Make prediction for {len(loader.dataset)} samples...')
+    print(f"Make prediction for {len(loader.dataset)} samples...")
     with torch.no_grad():
         for data in loader:
             data_mol = data[0].to(device)
@@ -22,67 +35,135 @@ def predicting(model, device, loader):
             total_labels = torch.cat((total_labels, data_mol.y.view(-1, 1).cpu()), 0)
     return total_labels.numpy().flatten(), total_preds.numpy().flatten()
 
-def calculate_metrics(Y, P, dataset='davis'):
-    cindex = get_cindex(Y, P)
-    cindex2 = get_ci(Y, P)
-    rm2 = get_rm2(Y, P)
-    mse = get_mse(Y, P)
-    pearson = get_pearson(Y, P)
-    spearman = get_spearman(Y, P)
-    rmse = get_rmse(Y, P)
 
-    print(f'Metrics for {dataset}:')
-    print(f'cindex: {cindex}')
-    print(f'cindex2: {cindex2}')
-    print(f'rm2: {rm2}')
-    print(f'mse: {mse}')
-    print(f'pearson: {pearson}')
+METRIC_NAMES = ["rmse", "mse", "pearson", "spearman", "ci", "cindex", "rm2"]
 
-    result_file_name = os.path.join(results_path, f'result_{model_st}_{dataset}.txt')
-    result_str = f'{dataset}\nrmse: {rmse} mse: {mse} pearson: {pearson} spearman: {spearman} ci: {cindex} rm2: {rm2}'
-    print(result_str)
-    with open(result_file_name, 'w') as file:
-        file.write(result_str)
 
-def plot_density(Y, P, dataset='davis'):
+def calculate_metrics(Y, P):
+    return {
+        "rmse": get_rmse(Y, P),
+        "mse": get_mse(Y, P),
+        "pearson": get_pearson(Y, P),
+        "spearman": get_spearman(Y, P),
+        "ci": get_ci(Y, P),
+        "cindex": get_cindex(Y, P),
+        "rm2": get_rm2(Y, P),
+    }
+
+
+def format_report(per_fold: dict, dataset: str) -> str:
+    folds = sorted(per_fold)
+    lines = [
+        f"{dataset}  folds evaluated: {folds}",
+        (
+            "ci (all pairs) is the value to compare with published numbers; cindex "
+            "only counts pairs whose larger label has the larger row index."
+        ),
+        "",
+    ]
+    for fold in folds:
+        row = "  ".join(f"{n}: {per_fold[fold][n]:.4f}" for n in METRIC_NAMES)
+        lines.append(f"fold {fold}  {row}")
+    lines.append("")
+    for name in METRIC_NAMES:
+        values = np.array([per_fold[f][name] for f in folds], dtype=float)
+        # Sample std across folds; undefined for a single fold.
+        std = values.std(ddof=1) if len(values) > 1 else float("nan")
+        lines.append(f"{name:9s} mean: {values.mean():.4f}  std: {std:.4f}")
+    return "\n".join(lines)
+
+
+def plot_density(Y, P, dataset, results_path, fold):
     plt.figure(figsize=(10, 5))
-    plt.grid(linestyle='--')
+    plt.grid(linestyle="--")
     ax = plt.gca()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
-    plt.scatter(P, Y, color='blue', s=40)
-    plt.title(f'density of {dataset}', fontsize=30, fontweight='bold')
-    plt.xlabel('predicted', fontsize=30, fontweight='bold')
-    plt.ylabel('measured', fontsize=30, fontweight='bold')
-    plt.plot([5, 11], [5, 11], color='black')
+    plt.scatter(P, Y, color="blue", s=40)
+    plt.title(f"density of {dataset}", fontsize=30, fontweight="bold")
+    plt.xlabel("predicted", fontsize=30, fontweight="bold")
+    plt.ylabel("measured", fontsize=30, fontweight="bold")
+    plt.plot([5, 11], [5, 11], color="black")
     plt.legend(loc=0, numpoints=1)
     leg = plt.gca().get_legend()
     ltext = leg.get_texts()
-    plt.setp(ltext, fontsize=12, fontweight='bold')
-    plt.savefig(os.path.join(results_path, f'{dataset}.png'), dpi=500, bbox_inches='tight')
+    plt.setp(ltext, fontsize=12, fontweight="bold")
+    plt.savefig(
+        os.path.join(results_path, f"{dataset}_fold{fold}.png"),
+        dpi=500,
+        bbox_inches="tight",
+    )
+    plt.close()
 
-if __name__ == '__main__':
-    dataset = 'davis'
-    cuda_name = 'cuda:0'
-    print(f'dataset: {dataset}')
-    print(f'cuda_name: {cuda_name}')
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Score trained GNNNet models on the test set."
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Score the full-data model instead of the five fold models.",
+    )
+    args = parser.parse_args()
+
+    set_seed(SEED)
+    dataset = "davis"
+    cuda_name = "cuda:0"
     TEST_BATCH_SIZE = 512
-    model_file_name = "path_to_the_model"  
-    results_path = "path_to_the_result_dir"  
+    FOLDS = [0, 1, 2, 3, 4]
 
-    device = torch.device(cuda_name if torch.cuda.is_available() else 'cpu')
+    model_st = GNNNet.__name__
+    PATHS = paths_for(dataset)
+    results_path = PATHS.results
+    os.makedirs(results_path, exist_ok=True)
+    device = torch.device(cuda_name if torch.cuda.is_available() else "cpu")
 
-    result_file_name = os.path.join(results_path, f'result_{GNNNet.__name__}_{dataset}.txt')
+    print(f"dataset: {dataset}")
+    print(f"device: {device}")
+    print(f"seed: {SEED}")
 
     test_data = create_test_dataset(dataset)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=TEST_BATCH_SIZE, shuffle=False, collate_fn=collate)
+    test_loader = torch.utils.data.DataLoader(
+        test_data, batch_size=TEST_BATCH_SIZE, shuffle=False, collate_fn=collate
+    )
 
-    model = GNNNet()
-    model.to(device)
-    model.load_state_dict(torch.load(model_file_name, map_location=device))
+    if args.full:
+        fold_labels = ["full"]
+        result_suffix = "_full"
+    else:
+        fold_labels = FOLDS
+        result_suffix = ""
 
-    Y, P = predicting(model, device, test_loader)
-    calculate_metrics(Y, P, dataset)
-    plot_density(Y, P, dataset)
+    per_fold = {}
+    for fold in fold_labels:
+        model_file_name = os.path.join(
+            PATHS.models, f"model_{model_st}_{dataset}_{fold}.model"
+        )
+        if not os.path.exists(model_file_name):
+            print(f"Fold {fold}: no model at {model_file_name}, skipping.")
+            continue
+
+        model = GNNNet().to(device)
+        model.load_state_dict(torch.load(model_file_name, map_location=device))
+        Y, P = predicting(model, device, test_loader)
+
+        per_fold[fold] = calculate_metrics(Y, P)
+        print(f"Fold {fold} metrics:")
+        for name in METRIC_NAMES:
+            print(f"  {name}: {per_fold[fold][name]}")
+        plot_density(Y, P, dataset, results_path, fold)
+
+    if not per_fold:
+        raise SystemExit("No fold models found, nothing to evaluate.")
+
+    report = format_report(per_fold, dataset)
+    print()
+    print(report)
+    result_file_name = os.path.join(
+        results_path, f"result_{model_st}_{dataset}{result_suffix}.txt"
+    )
+    with open(result_file_name, "w") as file:
+        file.write(report + "\n")
+    print(f"\nWrote {result_file_name}")

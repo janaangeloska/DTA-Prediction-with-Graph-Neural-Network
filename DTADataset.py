@@ -1,13 +1,24 @@
 import os
-from torch_geometric.data import InMemoryDataset, DataLoader, Batch
-from torch_geometric import data as DATA
+
 import torch
+from torch_geometric import data as DATA
+
+from torch_geometric.data import Batch, DataLoader, InMemoryDataset  # noqa: F401
 
 
 class DTADataset(InMemoryDataset):
-    def __init__(self, root='/tmp', dataset='kiba',
-                 xd=None, y=None, transform=None,
-                 pre_transform=None, smile_graph=None, target_key=None, target_graph=None):
+    def __init__(
+        self,
+        root="/tmp",
+        dataset="kiba",
+        xd=None,
+        y=None,
+        transform=None,
+        pre_transform=None,
+        smile_graph=None,
+        target_key=None,
+        target_graph=None,
+    ):
 
         super(DTADataset, self).__init__(root, transform, pre_transform)
         self.dataset = dataset
@@ -20,7 +31,7 @@ class DTADataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return [self.dataset + '_data_mol.pt', self.dataset + '_data_pro.pt']
+        return [self.dataset + "_data_mol.pt", self.dataset + "_data_pro.pt"]
 
     def download(self):
         # Download to `self.raw_dir`.
@@ -34,30 +45,52 @@ class DTADataset(InMemoryDataset):
             os.makedirs(self.processed_dir)
 
     def process(self, xd, target_key, y, smile_graph, target_graph):
-        assert (len(xd) == len(target_key) and len(xd) == len(y)), 'The three lists must be the same length!'
+        assert len(xd) == len(target_key) and len(xd) == len(y), (
+            "The three lists must be the same length!"
+        )
         data_list_mol = []
         data_list_pro = []
         data_len = len(xd)
+        # Each protein recurs across ~45 rows and each ligand across ~295. Build the
+        # tensors once per unique key and let the per-row Data objects share them;
+        # only the label differs per row.
+        mol_cache = {}
+        pro_cache = {}
         for i in range(data_len):
             smiles = xd[i]
             tar_key = target_key[i]
             labels = y[i]
-            # convert SMILES to molecular representation using rdkit
-            c_size, features, edge_index = smile_graph[smiles]
-            target_size, target_features, target_edge_index = target_graph[tar_key]
-            # print(np.array(features).shape, np.array(edge_index).shape)
-            # print(target_features.shape, target_edge_index.shape)
-            # make the graph ready for PyTorch Geometrics GCN algorithms:
-            GCNData_mol = DATA.Data(x=torch.Tensor(features),
-                                    edge_index=torch.LongTensor(edge_index).transpose(1, 0),
-                                    y=torch.FloatTensor([labels]))
-            GCNData_mol.__setitem__('c_size', torch.LongTensor([c_size]))
+            if smiles not in mol_cache:
+                c_size, features, edge_index = smile_graph[smiles]
+                mol_cache[smiles] = (
+                    torch.Tensor(features),
+                    torch.LongTensor(edge_index).transpose(1, 0),
+                    torch.LongTensor([c_size]),
+                )
+            if tar_key not in pro_cache:
+                target_size, target_features, target_edge_index = target_graph[tar_key]
+                pro_cache[tar_key] = (
+                    torch.Tensor(target_features),
+                    torch.LongTensor(target_edge_index).transpose(1, 0),
+                    torch.LongTensor([target_size]),
+                )
 
-            GCNData_pro = DATA.Data(x=torch.Tensor(target_features),
-                                    edge_index=torch.LongTensor(target_edge_index).transpose(1, 0),
-                                    y=torch.FloatTensor([labels]))
-            GCNData_pro.__setitem__('target_size', torch.LongTensor([target_size]))
-            # print(GCNData.target.size(), GCNData.target_edge_index.size(), GCNData.target_x.size())
+            mol_x, mol_edge_index, mol_size = mol_cache[smiles]
+            pro_x, pro_edge_index, pro_size = pro_cache[tar_key]
+
+            GCNData_mol = DATA.Data(
+                x=mol_x,
+                edge_index=mol_edge_index,
+                y=torch.FloatTensor([labels]),
+            )
+            GCNData_mol.__setitem__("c_size", mol_size)
+
+            GCNData_pro = DATA.Data(
+                x=pro_x,
+                edge_index=pro_edge_index,
+                y=torch.FloatTensor([labels]),
+            )
+            GCNData_pro.__setitem__("target_size", pro_size)
             data_list_mol.append(GCNData_mol)
             data_list_pro.append(GCNData_pro)
 
@@ -78,7 +111,7 @@ class DTADataset(InMemoryDataset):
 
 
 def train(model, device, train_loader, optimizer, epoch):
-    print('Training on {} samples...'.format(len(train_loader.dataset)))
+    print("Training on {} samples...".format(len(train_loader.dataset)))
     model.train()
     LOG_INTERVAL = 10
     TRAIN_BATCH_SIZE = 512
@@ -92,18 +125,22 @@ def train(model, device, train_loader, optimizer, epoch):
         loss.backward()
         optimizer.step()
         if batch_idx % LOG_INTERVAL == 0:
-            print('Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch,
-                                                                           batch_idx * TRAIN_BATCH_SIZE,
-                                                                           len(train_loader.dataset),
-                                                                           100. * batch_idx / len(train_loader),
-                                                                           loss.item()))
+            print(
+                "Train epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
+                    epoch,
+                    batch_idx * TRAIN_BATCH_SIZE,
+                    len(train_loader.dataset),
+                    100.0 * batch_idx / len(train_loader),
+                    loss.item(),
+                )
+            )
 
 
 def predicting(model, device, loader):
     model.eval()
     total_preds = torch.Tensor()
     total_labels = torch.Tensor()
-    print('Make prediction for {} samples...'.format(len(loader.dataset)))
+    print("Make prediction for {} samples...".format(len(loader.dataset)))
     with torch.no_grad():
         for data in loader:
             data_mol = data[0].to(device)

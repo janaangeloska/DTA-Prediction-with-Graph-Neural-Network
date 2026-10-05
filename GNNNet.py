@@ -1,15 +1,25 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GATConv, global_max_pool as gmp, global_add_pool as gap,global_mean_pool as gep,global_sort_pool
-from torch_geometric.utils import dropout_adj
+from torch_geometric.nn import (
+    GCNConv,
+)
+from torch_geometric.nn import (
+    global_mean_pool as gep,
+)
 
 
 class GNNNet(torch.nn.Module):
-    def __init__(self, n_output=1, num_features_pro=33, num_features_mol=78, output_dim=128, dropout=0.2):
+    def __init__(
+        self,
+        n_output=1,
+        num_features_pro=33,
+        num_features_mol=78,
+        output_dim=128,
+        dropout=0.2,
+    ):
         super(GNNNet, self).__init__()
 
-        print('GNNNet Loaded')
+        print("GNNNet Loaded")
         self.n_output = n_output
         self.mol_conv1 = GCNConv(num_features_mol, num_features_mol)
         self.mol_conv2 = GCNConv(num_features_mol, num_features_mol * 2)
@@ -34,8 +44,16 @@ class GNNNet(torch.nn.Module):
         self.out = nn.Linear(512, self.n_output)
 
     def forward(self, data_mol, data_pro):
-        mol_x, mol_edge_index, mol_batch = data_mol.x, data_mol.edge_index, data_mol.batch
-        target_x, target_edge_index, target_batch = data_pro.x, data_pro.edge_index, data_pro.batch
+        mol_x, mol_edge_index, mol_batch = (
+            data_mol.x,
+            data_mol.edge_index,
+            data_mol.batch,
+        )
+        target_x, target_edge_index, target_batch = (
+            data_pro.x,
+            data_pro.edge_index,
+            data_pro.batch,
+        )
 
         x = self.mol_conv1(mol_x, mol_edge_index)
         x = self.relu(x)
@@ -44,7 +62,7 @@ class GNNNet(torch.nn.Module):
 
         x = self.mol_conv3(x, mol_edge_index)
         x = self.relu(x)
-        x = gep(x, mol_batch)  
+        x = gep(x, mol_batch)
 
         x = self.relu(self.mol_fc_g1(x))
         x = self.dropout(x)
@@ -59,7 +77,7 @@ class GNNNet(torch.nn.Module):
         xt = self.relu(xt)
 
         xt = gep(xt, target_batch)
-   
+
         xt = self.relu(self.pro_fc_g1(xt))
         xt = self.dropout(xt)
         xt = self.pro_fc_g2(xt)
