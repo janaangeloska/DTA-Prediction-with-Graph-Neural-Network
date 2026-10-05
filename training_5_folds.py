@@ -25,7 +25,7 @@ TEST_BATCH_SIZE = 512
 LR = 0.001
 NUM_EPOCHS = 2000
 # Checkpoint cadence in epochs.
-CHECKPOINT_EVERY_EPOCHS = 1
+CHECKPOINT_EVERY_EPOCHS = 10
 EARLY_STOP_PATIENCE = 100
 # Checkpoint identity for the full-data model, outside the CV fold range 0-4.
 FULL_FOLD = -1
