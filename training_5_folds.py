@@ -2,24 +2,23 @@ import argparse
 import gc
 import json
 import os
+from collections.abc import Callable
 
 import torch
+from torch.utils.data import Dataset
 
 from Checkpointing import checkpoint_path, load_checkpoint, save_checkpoint
-from Creating_Train_and_Test_set import (
-    create_dataset_for_5folds,
-    load_fold_indices,
-    load_test_indices,
-)
-from DTADataset import DataLoader, DTADataset, collate, predicting, train
+from Conditions import Condition, build_condition
+from Creating_Train_and_Test_set import load_fold_indices, load_test_indices
+from DTADataset import DataLoader, predicting, train
 from Emetrics import get_mse
-from GNNNet import GNNNet
 from Paths import DatasetPaths, paths_for
-from Seeding import SEED, set_seed
+from RunTag import add_run_args, check_run_args, run_tag, tag_suffix
+from Seeding import set_seed
 
 dataset = "davis"
-folds = [0, 1, 2, 3, 4]
 
+# Batch sizes, LR and epoch count as in DGraphDTA (Jiang et al., RSC Advances 2020) training_5folds.py.
 TRAIN_BATCH_SIZE = 512
 TEST_BATCH_SIZE = 512
 LR = 0.001
@@ -32,14 +31,16 @@ FULL_FOLD = -1
 FULL_TRAIN_ROWS = 25046
 
 
-def make_train_loader(train_data: DTADataset, seed: int) -> DataLoader:
+def make_train_loader(
+    train_data: Dataset, seed: int, collate_fn: Callable
+) -> DataLoader:
     generator = torch.Generator()
     generator.manual_seed(seed)
     return DataLoader(
         train_data,
         batch_size=TRAIN_BATCH_SIZE,
         shuffle=True,
-        collate_fn=collate,
+        collate_fn=collate_fn,
         generator=generator,
     )
 
@@ -49,9 +50,14 @@ def patience_exhausted(epoch: int, best_epoch: int) -> bool:
 
 
 def record_best_epoch(
-    results_dir: str, fold: int, best_epoch: int, best_mse: float, last_epoch: int
+    results_dir: str,
+    fold: int,
+    best_epoch: int,
+    best_mse: float,
+    last_epoch: int,
+    tag: str,
 ) -> None:
-    path = os.path.join(results_dir, "best_epochs.json")
+    path = os.path.join(results_dir, f"best_epochs{tag_suffix(tag)}.json")
     records = {}
     if os.path.exists(path):
         with open(path) as file:
@@ -68,14 +74,21 @@ def record_best_epoch(
     os.replace(tmp_path, path)
 
 
-def run_fold(fold: int, paths: DatasetPaths, device: torch.device) -> None:
-    set_seed(SEED)
-    model = GNNNet()
+def run_fold(
+    fold: int,
+    condition: Condition,
+    tag: str,
+    seed: int,
+    paths: DatasetPaths,
+    device: torch.device,
+) -> None:
+    set_seed(seed)
+    model = condition.build_model()
     model.to(device)
-    model_st = GNNNet.__name__
+    model_st = condition.model_name
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-    checkpoint_file_name = checkpoint_path(paths.models, model_st, dataset, fold)
+    checkpoint_file_name = checkpoint_path(paths.models, model_st, dataset, fold, tag)
     start_epoch, best_mse, best_epoch = load_checkpoint(
         checkpoint_file_name, fold, model, optimizer, device
     )
@@ -84,7 +97,7 @@ def run_fold(fold: int, paths: DatasetPaths, device: torch.device) -> None:
             f"Fold {fold} already finished at epoch {start_epoch} "
             f"(best MSE {best_mse} at epoch {best_epoch}), skipping"
         )
-        record_best_epoch(paths.results, fold, best_epoch, best_mse, start_epoch)
+        record_best_epoch(paths.results, fold, best_epoch, best_mse, start_epoch, tag)
         return
     if start_epoch > 0:
         print(
@@ -93,16 +106,17 @@ def run_fold(fold: int, paths: DatasetPaths, device: torch.device) -> None:
 
     print(f"Training for fold {fold}...")
 
-    train_data, valid_data = create_dataset_for_5folds(
-        dataset_name=dataset, fold_idx=fold
-    )
-    train_loader = make_train_loader(train_data, SEED + fold)
+    train_data, valid_data = condition.fold_datasets(fold)
+    train_loader = make_train_loader(train_data, seed + fold, condition.collate)
     valid_loader = DataLoader(
-        valid_data, batch_size=TEST_BATCH_SIZE, shuffle=False, collate_fn=collate
+        valid_data,
+        batch_size=TEST_BATCH_SIZE,
+        shuffle=False,
+        collate_fn=condition.collate,
     )
 
     model_file_name = os.path.join(
-        paths.models, f"model_{model_st}_{dataset}_{fold}.model"
+        paths.models, f"model_{model_st}_{dataset}{tag_suffix(tag)}_{fold}.model"
     )
 
     last_epoch = start_epoch
@@ -140,7 +154,7 @@ def run_fold(fold: int, paths: DatasetPaths, device: torch.device) -> None:
             )
             break
 
-    record_best_epoch(paths.results, fold, best_epoch, best_mse, last_epoch)
+    record_best_epoch(paths.results, fold, best_epoch, best_mse, last_epoch, tag)
 
 
 def check_full_split(n_rows: int, paths: DatasetPaths) -> None:
@@ -154,14 +168,23 @@ def check_full_split(n_rows: int, paths: DatasetPaths) -> None:
     )
 
 
-def run_full(epochs: int, paths: DatasetPaths, device: torch.device) -> None:
-    set_seed(SEED)
-    model = GNNNet()
+def run_full(
+    epochs: int,
+    condition: Condition,
+    tag: str,
+    seed: int,
+    paths: DatasetPaths,
+    device: torch.device,
+) -> None:
+    set_seed(seed)
+    model = condition.build_model()
     model.to(device)
-    model_st = GNNNet.__name__
+    model_st = condition.model_name
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-    checkpoint_file_name = checkpoint_path(paths.models, model_st, dataset, FULL_FOLD)
+    checkpoint_file_name = checkpoint_path(
+        paths.models, model_st, dataset, FULL_FOLD, tag
+    )
     start_epoch, _, _ = load_checkpoint(
         checkpoint_file_name, FULL_FOLD, model, optimizer, device
     )
@@ -177,9 +200,9 @@ def run_full(epochs: int, paths: DatasetPaths, device: torch.device) -> None:
 
     print(f"Training on all training folds for {epochs} epochs...")
 
-    train_data, _ = create_dataset_for_5folds(dataset_name=dataset, combine_all=True)
+    train_data = condition.full_train_dataset()
     check_full_split(len(train_data), paths)
-    train_loader = make_train_loader(train_data, SEED)
+    train_loader = make_train_loader(train_data, seed, condition.collate)
 
     for epoch in range(start_epoch, epochs):
         train(model, device, train_loader, optimizer, epoch + 1)
@@ -195,14 +218,16 @@ def run_full(epochs: int, paths: DatasetPaths, device: torch.device) -> None:
             )
 
     model_file_name = os.path.join(
-        paths.models, f"model_{model_st}_{dataset}_full.model"
+        paths.models, f"model_{model_st}_{dataset}{tag_suffix(tag)}_full.model"
     )
     torch.save(model.state_dict(), model_file_name)
     print(f"Saved full-data model after {epochs} epochs to {model_file_name}")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=f"Train GNNNet on {dataset}.")
+    parser = argparse.ArgumentParser(
+        description=f"Train GNNNet or PLMNet on {dataset}."
+    )
     parser.add_argument(
         "--mode",
         choices=["cv", "full"],
@@ -213,7 +238,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--epochs", type=int, help="Exact number of epochs, required for --mode full."
     )
+    add_run_args(parser)
     args = parser.parse_args()
+    check_run_args(parser, args)
     if args.mode == "full" and args.epochs is None:
         parser.error("--epochs is required with --mode full")
     if args.mode == "cv" and args.epochs is not None:
@@ -228,7 +255,12 @@ def main() -> None:
 
     print("Dataset: ", dataset)
     print("Mode: ", args.mode)
-    print("Seed: ", SEED)
+    print("Protein representation: ", args.protein_repr)
+    print("Structure set: ", args.pdb_set)
+    if args.plm_model is not None:
+        print("Protein language model: ", args.plm_model)
+        print("Standardized embeddings: ", args.standardize)
+    print("Seed: ", args.seed)
     print("Learning rate: ", LR)
     if args.mode == "cv":
         print("Epochs: ", NUM_EPOCHS)
@@ -236,7 +268,7 @@ def main() -> None:
     else:
         print("Epochs: ", args.epochs)
 
-    paths = paths_for(dataset)
+    paths = paths_for(dataset, args.pdb_set)
     print("Data root: ", paths.root)
     os.makedirs(paths.models, exist_ok=True)
     os.makedirs(paths.results, exist_ok=True)
@@ -244,12 +276,20 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
+    tag = run_tag(
+        args.protein_repr, args.plm_model, args.seed, args.standardize, args.pdb_set
+    )
+    print("Run tag: ", tag or "(none)")
+    condition = build_condition(
+        args.protein_repr, args.plm_model, args.standardize, dataset, paths
+    )
+
     if args.mode == "full":
-        run_full(args.epochs, paths, device)
+        run_full(args.epochs, condition, tag, args.seed, paths, device)
         return
 
-    for fold in folds:
-        run_fold(fold, paths, device)
+    for fold in range(len(load_fold_indices(paths.train_folds))):
+        run_fold(fold, condition, tag, args.seed, paths, device)
         gc.collect()
 
 

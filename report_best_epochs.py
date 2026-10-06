@@ -1,24 +1,42 @@
+import argparse
+import json
 import os
 import statistics
 
 import torch
 
 from Checkpointing import checkpoint_path
-from GNNNet import GNNNet
 from Paths import paths_for
+from RunTag import MODEL_CLASS_NAMES, add_run_args, check_run_args, run_tag
 
 DATASET = "davis"
-FOLDS = [0, 1, 2, 3, 4]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Report the best epoch of each fold checkpoint."
+    )
+    add_run_args(parser)
+    args = parser.parse_args()
+    check_run_args(parser, args)
+    return args
 
 
 def main() -> None:
-    paths = paths_for(DATASET)
+    args = parse_args()
+    paths = paths_for(DATASET, args.pdb_set)
+    model_name = MODEL_CLASS_NAMES[args.protein_repr]
+    tag = run_tag(
+        args.protein_repr, args.plm_model, args.seed, args.standardize, args.pdb_set
+    )
+    with open(paths.train_folds) as file:
+        n_folds = len(json.load(file))
     print(f"Checkpoints: {paths.models}")
     print(f"{'fold':>4}  {'last_epoch':>10}  {'best_epoch':>10}  {'best_mse':>10}")
 
     best_epochs = []
-    for fold in FOLDS:
-        path = checkpoint_path(paths.models, GNNNet.__name__, DATASET, fold)
+    for fold in range(n_folds):
+        path = checkpoint_path(paths.models, model_name, DATASET, fold, tag)
         if not os.path.exists(path):
             print(f"{fold:>4}  missing {path}")
             continue
