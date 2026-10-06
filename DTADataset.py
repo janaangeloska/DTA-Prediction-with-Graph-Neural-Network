@@ -1,9 +1,21 @@
 import os
+from collections.abc import Sequence
 
 import torch
+from torch.utils.data import Dataset
 from torch_geometric import data as DATA
-
 from torch_geometric.data import Batch, DataLoader, InMemoryDataset  # noqa: F401
+
+
+def graph_tensors(
+    graph: tuple[int, list, list],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    size, features, edge_index = graph
+    return (
+        torch.Tensor(features),
+        torch.LongTensor(edge_index).transpose(1, 0),
+        torch.LongTensor([size]),
+    )
 
 
 class DTADataset(InMemoryDataset):
@@ -61,19 +73,9 @@ class DTADataset(InMemoryDataset):
             tar_key = target_key[i]
             labels = y[i]
             if smiles not in mol_cache:
-                c_size, features, edge_index = smile_graph[smiles]
-                mol_cache[smiles] = (
-                    torch.Tensor(features),
-                    torch.LongTensor(edge_index).transpose(1, 0),
-                    torch.LongTensor([c_size]),
-                )
+                mol_cache[smiles] = graph_tensors(smile_graph[smiles])
             if tar_key not in pro_cache:
-                target_size, target_features, target_edge_index = target_graph[tar_key]
-                pro_cache[tar_key] = (
-                    torch.Tensor(target_features),
-                    torch.LongTensor(target_edge_index).transpose(1, 0),
-                    torch.LongTensor([target_size]),
-                )
+                pro_cache[tar_key] = graph_tensors(target_graph[tar_key])
 
             mol_x, mol_edge_index, mol_size = mol_cache[smiles]
             pro_x, pro_edge_index, pro_size = pro_cache[tar_key]
@@ -107,6 +109,40 @@ class DTADataset(InMemoryDataset):
         return len(self.data_mol)
 
     def __getitem__(self, idx):
+        return self.data_mol[idx], self.data_pro[idx]
+
+
+class PLMDTADataset(Dataset):
+    """Drug graph paired with a pooled protein language model embedding."""
+
+    def __init__(
+        self,
+        xd: Sequence[str],
+        y: Sequence[float],
+        smile_graph: dict[str, tuple[int, list, list]],
+        target_key: Sequence[str],
+        target_embedding: dict[str, torch.Tensor],
+    ) -> None:
+        assert len(xd) == len(target_key) and len(xd) == len(y), (
+            "The three lists must be the same length!"
+        )
+        mol_cache = {}
+        self.data_mol: list[DATA.Data] = []
+        for smiles, label in zip(xd, y):
+            if smiles not in mol_cache:
+                mol_cache[smiles] = graph_tensors(smile_graph[smiles])
+            mol_x, mol_edge_index, mol_size = mol_cache[smiles]
+            data_mol = DATA.Data(
+                x=mol_x, edge_index=mol_edge_index, y=torch.FloatTensor([label])
+            )
+            data_mol.__setitem__("c_size", mol_size)
+            self.data_mol.append(data_mol)
+        self.data_pro = [target_embedding[key] for key in target_key]
+
+    def __len__(self) -> int:
+        return len(self.data_mol)
+
+    def __getitem__(self, idx: int) -> tuple[DATA.Data, torch.Tensor]:
         return self.data_mol[idx], self.data_pro[idx]
 
 
@@ -155,3 +191,11 @@ def collate(data_list):
     batchA = Batch.from_data_list([data[0] for data in data_list])
     batchB = Batch.from_data_list([data[1] for data in data_list])
     return batchA, batchB
+
+
+def plm_collate(
+    data_list: list[tuple[DATA.Data, torch.Tensor]],
+) -> tuple[Batch, torch.Tensor]:
+    batch_mol = Batch.from_data_list([data[0] for data in data_list])
+    batch_pro = torch.stack([data[1] for data in data_list])
+    return batch_mol, batch_pro

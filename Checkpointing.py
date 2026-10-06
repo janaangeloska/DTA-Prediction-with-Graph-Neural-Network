@@ -4,9 +4,15 @@ from typing import Tuple
 import torch
 from torch import nn
 
+from RunTag import tag_suffix
 
-def checkpoint_path(models_dir: str, model_name: str, dataset: str, fold: int) -> str:
-    return os.path.join(models_dir, f"checkpoint_{model_name}_{dataset}_{fold}.pt")
+
+def checkpoint_path(
+    models_dir: str, model_name: str, dataset: str, fold: int, tag: str = ""
+) -> str:
+    return os.path.join(
+        models_dir, f"checkpoint_{model_name}_{dataset}{tag_suffix(tag)}_{fold}.pt"
+    )
 
 
 def save_checkpoint(
