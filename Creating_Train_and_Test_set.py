@@ -1,22 +1,19 @@
+import functools
 import glob
 import hashlib
 import json
 import os
 import re
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 import networkx as nx
 import numpy as np
 import pandas as pd
+import torch
 
-from DTADataset import DTADataset
-from Paths import paths_for
-
-PATHS = paths_for("davis")
-ligand_folder = PATHS.ligand_graphs
-protein_folder = PATHS.protein_graph_gml
-csv_file = PATHS.csv
-train_fold_file = PATHS.train_folds
-test_fold_file = PATHS.test_fold
+from DTADataset import DTADataset, PLMDTADataset
+from Paths import DatasetPaths
 
 
 def sanitize_filename_KIBA(smile):
@@ -56,31 +53,45 @@ def load_protein_gml(file_path):
     return len(features), features, edge_index
 
 
-ligand_files = glob.glob(os.path.join(ligand_folder, "*.gml"))
-protein_files = glob.glob(os.path.join(protein_folder, "*.gml"))
-
-smile_graph = {}
-target_graph = {}
-
-
-for ligand_file in ligand_files:
-    base_name = os.path.basename(ligand_file)
-    ligand_name = base_name.replace(".gml", "")
-    smile_graph[ligand_name] = load_ligand_gml(ligand_file)
+# Cached per folder, so the five folds and the test set reuse one parse of the graph files.
+@functools.cache
+def ligand_graphs(ligand_folder: str) -> dict[str, tuple[int, list, list]]:
+    graphs = {}
+    for ligand_file in glob.glob(os.path.join(ligand_folder, "*.gml")):
+        ligand_name = os.path.basename(ligand_file).replace(".gml", "")
+        graphs[ligand_name] = load_ligand_gml(ligand_file)
+    return graphs
 
 
-for protein_file in protein_files:
-    base_name = os.path.basename(protein_file)
-    protein_name = sanitize_protein_filename(base_name)
-    target_graph[protein_name] = load_protein_gml(protein_file)
+@functools.cache
+def protein_graphs(protein_folder: str) -> dict[str, tuple[int, list, list]]:
+    graphs = {}
+    for protein_file in glob.glob(os.path.join(protein_folder, "*.gml")):
+        protein_name = sanitize_protein_filename(os.path.basename(protein_file))
+        graphs[protein_name] = load_protein_gml(protein_file)
+    if not graphs:
+        raise FileNotFoundError(
+            f"No protein graphs in {protein_folder}. Run Protein_Representation.py "
+            "with the same --pdb-set first."
+        )
+    return graphs
 
 
-data_df = pd.read_csv(csv_file)
-data_df["ligands"] = data_df["ligand"].apply(sanitize_filename_DAVIS)
+@dataclass(frozen=True)
+class PairTable:
+    ligands: list[str]
+    proteins: list[str]
+    labels: list[float]
 
-ligands = data_df["ligands"].tolist()
-proteins = data_df["protein"].apply(sanitize_protein_filename).tolist()
-labels = data_df["label"].tolist()
+
+@functools.cache
+def pair_table(csv_file: str) -> PairTable:
+    data_df = pd.read_csv(csv_file)
+    return PairTable(
+        ligands=data_df["ligand"].apply(sanitize_filename_DAVIS).tolist(),
+        proteins=data_df["protein"].apply(sanitize_protein_filename).tolist(),
+        labels=data_df["label"].tolist(),
+    )
 
 
 def load_fold_indices(train_fold_file, num_folds=5):
@@ -92,11 +103,9 @@ def load_fold_indices(train_fold_file, num_folds=5):
     return fold_indices
 
 
-fold_indices = load_fold_indices(train_fold_file)
-print(f"Loaded fold indices (number of folds): {len(fold_indices)}")
-
-
-def create_dataset_for_5folds(dataset_name, combine_all=False, fold_idx=0):
+def split_indices(
+    train_fold_file: str, combine_all: bool = False, fold_idx: int = 0
+) -> tuple[list[int], list[int]]:
     fold_indices = load_fold_indices(train_fold_file)
 
     if combine_all:
@@ -114,40 +123,35 @@ def create_dataset_for_5folds(dataset_name, combine_all=False, fold_idx=0):
         train_idx = [
             i for n, fold in enumerate(fold_indices) if n != fold_idx for i in fold
         ]
+    return train_idx, val_idx
 
-    train_ligands = np.array(ligands)[train_idx]
-    train_proteins = np.array(proteins)[train_idx]
-    train_labels = np.array(labels)[train_idx]
 
-    val_ligands, val_proteins, val_labels = [], [], []
-    if not combine_all:  # Only for specific fold validation
-        val_ligands = np.array(ligands)[val_idx]
-        val_proteins = np.array(proteins)[val_idx]
-        val_labels = np.array(labels)[val_idx]
-
-    train_dataset = DTADataset(
+def create_structure_dataset(
+    dataset_name: str, indices: Sequence[int], paths: DatasetPaths
+) -> DTADataset:
+    table = pair_table(paths.csv)
+    return DTADataset(
         root="/tmp",
-        dataset=dataset_name + "_train",
-        xd=train_ligands.tolist(),
-        y=train_labels.tolist(),
-        smile_graph=smile_graph,
-        target_key=train_proteins.tolist(),
-        target_graph=target_graph,
+        dataset=dataset_name,
+        xd=np.array(table.ligands)[indices].tolist(),
+        y=np.array(table.labels)[indices].tolist(),
+        smile_graph=ligand_graphs(paths.ligand_graphs),
+        target_key=np.array(table.proteins)[indices].tolist(),
+        target_graph=protein_graphs(paths.protein_graph_gml),
     )
 
+
+def create_dataset_for_5folds(
+    dataset_name: str,
+    paths: DatasetPaths,
+    combine_all: bool = False,
+    fold_idx: int = 0,
+) -> tuple[DTADataset, DTADataset | None]:
+    train_idx, val_idx = split_indices(paths.train_folds, combine_all, fold_idx)
+    train_dataset = create_structure_dataset(dataset_name + "_train", train_idx, paths)
     val_dataset = None
     if not combine_all:
-        # Validation dataset
-        val_dataset = DTADataset(
-            root="/tmp",
-            dataset=dataset_name + "_valid",
-            xd=val_ligands.tolist(),
-            y=val_labels.tolist(),
-            smile_graph=smile_graph,
-            target_key=val_proteins.tolist(),
-            target_graph=target_graph,
-        )
-
+        val_dataset = create_structure_dataset(dataset_name + "_valid", val_idx, paths)
     return train_dataset, val_dataset
 
 
@@ -160,23 +164,45 @@ def load_test_indices(test_fold_file):
     return test_indices
 
 
-test_indices = load_test_indices(test_fold_file)
-
-
-def create_test_dataset(dataset_name):
-    test_ligands = np.array(ligands)[test_indices]
-    test_proteins = np.array(proteins)[test_indices]
-    test_labels = np.array(labels)[test_indices]
-
-    test_dataset = DTADataset(
-        root="/tmp",
-        dataset=dataset_name + "_test",
-        xd=test_ligands.tolist(),
-        y=test_labels.tolist(),
-        smile_graph=smile_graph,
-        target_key=test_proteins.tolist(),
-        target_graph=target_graph,
-    )
-
+def create_test_dataset(dataset_name: str, paths: DatasetPaths) -> DTADataset:
+    test_indices = load_test_indices(paths.test_fold)
+    test_dataset = create_structure_dataset(dataset_name + "_test", test_indices, paths)
     print(f"Test dataset created with {len(test_indices)} samples.")
     return test_dataset
+
+
+def create_plm_dataset(
+    indices: Sequence[int],
+    target_embedding: dict[str, torch.Tensor],
+    paths: DatasetPaths,
+) -> PLMDTADataset:
+    table = pair_table(paths.csv)
+    return PLMDTADataset(
+        xd=[table.ligands[i] for i in indices],
+        y=[table.labels[i] for i in indices],
+        smile_graph=ligand_graphs(paths.ligand_graphs),
+        target_key=[table.proteins[i] for i in indices],
+        target_embedding=target_embedding,
+    )
+
+
+def create_plm_dataset_for_folds(
+    target_embedding: dict[str, torch.Tensor],
+    paths: DatasetPaths,
+    combine_all: bool = False,
+    fold_idx: int = 0,
+) -> tuple[PLMDTADataset, PLMDTADataset | None]:
+    train_idx, val_idx = split_indices(paths.train_folds, combine_all, fold_idx)
+    train_dataset = create_plm_dataset(train_idx, target_embedding, paths)
+    val_dataset = (
+        None if combine_all else create_plm_dataset(val_idx, target_embedding, paths)
+    )
+    return train_dataset, val_dataset
+
+
+def create_plm_test_dataset(
+    target_embedding: dict[str, torch.Tensor], paths: DatasetPaths
+) -> PLMDTADataset:
+    return create_plm_dataset(
+        load_test_indices(paths.test_fold), target_embedding, paths
+    )
