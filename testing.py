@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from Conditions import build_condition
-from Creating_Train_and_Test_set import load_fold_indices
-from DTADataset import *
-from Emetrics import (
+from src.common.conditions import build_condition
+from src.common.creating_train_and_test_set import load_fold_indices
+from src.common.dta_dataset import *
+from src.common.emetrics import (
     get_ci,
     get_cindex,
     get_mse,
@@ -17,9 +17,9 @@ from Emetrics import (
     get_rmse,
     get_spearman,
 )
-from Paths import paths_for
-from RunTag import add_run_args, check_run_args, run_tag, tag_suffix
-from Seeding import set_seed
+from src.common.paths import paths_for
+from src.common.run_tag import add_run_args, check_run_args, run_tag, tag_suffix
+from src.common.seeding import set_seed
 
 
 def predicting(model, device, loader):

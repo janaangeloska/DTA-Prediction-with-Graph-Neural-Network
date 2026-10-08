@@ -1,6 +1,21 @@
 # DTA-Prediction-with-Graph-Neural-Network
 This repository contains code and resources for replicatin the work described in the paper "Drug–Target Affinity Prediction using Graph Neural Network and Contact Maps" (RSC Advances, 2020). In this project, I changed the protein representation by using contact maps derived from AlphaFold-generated PDB files.
 
+## Layout
+
+- `src/common/`: paths, seeding, run tags, dataset building, checkpoints, metrics and drug graphs
+  (`drug_representation.py`).
+- `src/structure/`: protein contact-map graphs (`protein_representation.py`) and the GNN model
+  (`GNNNet` in `gnn_net.py`).
+- `src/sequence/`: protein language model embeddings (`protein_embeddings.py`) and the embedding
+  model (`PLMNet` in `plm_net.py`).
+- `notebooks/`: Colab notebooks.
+- Entry scripts stay at the root: `training_5_folds.py`, `testing.py`, `report_best_epochs.py`,
+  `compute_protein_embeddings.py`.
+
+Run every command from the repository root. On Colab, `cd` into the repository folder first so
+`src` is importable.
+
 ## Data
 
 `data/` is not in git. Put these files in `data/davis/`:
@@ -18,8 +33,8 @@ To keep data and outputs somewhere else, for example a mounted Google Drive fold
 ## Build the graphs
 
 ```bash
-python Drug_Representation.py
-python Protein_Representation.py --pdb-set kinase_domain
+python -m src.common.drug_representation
+python -m src.structure.protein_representation --pdb-set kinase_domain
 ```
 
 ## Train and test

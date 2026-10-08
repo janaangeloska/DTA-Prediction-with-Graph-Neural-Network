@@ -11,8 +11,8 @@ import pandas as pd
 from Bio.SeqUtils import seq1
 from scipy.spatial.distance import pdist, squareform
 
-from Paths import paths_for
-from Structure_Sets import add_pdb_set_arg
+from src.common.paths import paths_for
+from src.common.structure_sets import add_pdb_set_arg
 
 pro_res_table = [
     "ALA",

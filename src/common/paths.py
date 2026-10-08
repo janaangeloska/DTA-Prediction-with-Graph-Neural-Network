@@ -2,11 +2,12 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from Structure_Sets import DEFAULT_STRUCTURE_SET, STRUCTURE_SETS
+from src.common.structure_sets import DEFAULT_STRUCTURE_SET, STRUCTURE_SETS
 
 ROOT_ENV_VAR = "DTA_DATA_ROOT"
 
-_REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+# This file sits in src/common, two levels below the repo root.
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def data_root() -> str:

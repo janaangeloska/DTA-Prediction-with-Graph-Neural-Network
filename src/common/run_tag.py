@@ -1,10 +1,14 @@
 import argparse
 
-from GNNNet import GNNNet
-from PLMNet import PLMNet
-from Protein_Embeddings import MODEL_NAMES
-from Seeding import SEED
-from Structure_Sets import DEFAULT_STRUCTURE_SET, STRUCTURE_SETS, add_pdb_set_arg
+from src.common.seeding import SEED
+from src.common.structure_sets import (
+    DEFAULT_STRUCTURE_SET,
+    STRUCTURE_SETS,
+    add_pdb_set_arg,
+)
+from src.sequence.plm_net import PLMNet
+from src.sequence.protein_embeddings import MODEL_NAMES
+from src.structure.gnn_net import GNNNet
 
 MODEL_CLASS_NAMES = {"structure": GNNNet.__name__, "plm": PLMNet.__name__}
 

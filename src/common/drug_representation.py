@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from rdkit import Chem
 
-from Paths import paths_for
+from src.common.paths import paths_for
 
 matplotlib.use("Agg")
 

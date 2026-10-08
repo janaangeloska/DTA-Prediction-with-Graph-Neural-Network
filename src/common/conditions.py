@@ -4,18 +4,18 @@ from dataclasses import dataclass
 from torch import nn
 from torch.utils.data import Dataset
 
-from Creating_Train_and_Test_set import (
+from src.common.creating_train_and_test_set import (
     create_dataset_for_5folds,
     create_plm_dataset_for_folds,
     create_plm_test_dataset,
     create_test_dataset,
 )
-from DTADataset import collate, plm_collate
-from GNNNet import GNNNet
-from Paths import DatasetPaths
-from PLMNet import PLMNet
-from Protein_Embeddings import load_pooled_embeddings
-from RunTag import MODEL_CLASS_NAMES
+from src.common.dta_dataset import collate, plm_collate
+from src.common.paths import DatasetPaths
+from src.common.run_tag import MODEL_CLASS_NAMES
+from src.sequence.plm_net import PLMNet
+from src.sequence.protein_embeddings import load_pooled_embeddings
+from src.structure.gnn_net import GNNNet
 
 
 @dataclass(frozen=True)

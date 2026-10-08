@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from GNNNet import DrugTargetNet
+from src.structure.gnn_net import DrugTargetNet
 
 
 class PLMNet(DrugTargetNet):

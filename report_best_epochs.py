@@ -5,9 +5,9 @@ import statistics
 
 import torch
 
-from Checkpointing import checkpoint_path
-from Paths import paths_for
-from RunTag import MODEL_CLASS_NAMES, add_run_args, check_run_args, run_tag
+from src.common.checkpointing import checkpoint_path
+from src.common.paths import paths_for
+from src.common.run_tag import MODEL_CLASS_NAMES, add_run_args, check_run_args, run_tag
 
 DATASET = "davis"
 

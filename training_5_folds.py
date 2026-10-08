@@ -7,14 +7,14 @@ from collections.abc import Callable
 import torch
 from torch.utils.data import Dataset
 
-from Checkpointing import checkpoint_path, load_checkpoint, save_checkpoint
-from Conditions import Condition, build_condition
-from Creating_Train_and_Test_set import load_fold_indices, load_test_indices
-from DTADataset import DataLoader, predicting, train
-from Emetrics import get_mse
-from Paths import DatasetPaths, paths_for
-from RunTag import add_run_args, check_run_args, run_tag, tag_suffix
-from Seeding import set_seed
+from src.common.checkpointing import checkpoint_path, load_checkpoint, save_checkpoint
+from src.common.conditions import Condition, build_condition
+from src.common.creating_train_and_test_set import load_fold_indices, load_test_indices
+from src.common.dta_dataset import DataLoader, predicting, train
+from src.common.emetrics import get_mse
+from src.common.paths import DatasetPaths, paths_for
+from src.common.run_tag import add_run_args, check_run_args, run_tag, tag_suffix
+from src.common.seeding import set_seed
 
 dataset = "davis"
 

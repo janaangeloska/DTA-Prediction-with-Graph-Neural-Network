@@ -12,8 +12,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from DTADataset import DTADataset, PLMDTADataset
-from Paths import DatasetPaths
+from src.common.dta_dataset import DTADataset, PLMDTADataset
+from src.common.paths import DatasetPaths
 
 
 def sanitize_filename_KIBA(smile):
@@ -71,8 +71,8 @@ def protein_graphs(protein_folder: str) -> dict[str, tuple[int, list, list]]:
         graphs[protein_name] = load_protein_gml(protein_file)
     if not graphs:
         raise FileNotFoundError(
-            f"No protein graphs in {protein_folder}. Run Protein_Representation.py "
-            "with the same --pdb-set first."
+            f"No protein graphs in {protein_folder}. Run "
+            "python -m src.structure.protein_representation with the same --pdb-set first."
         )
     return graphs
 

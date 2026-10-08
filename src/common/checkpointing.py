@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 from torch import nn
 
-from RunTag import tag_suffix
+from src.common.run_tag import tag_suffix
 
 
 def checkpoint_path(

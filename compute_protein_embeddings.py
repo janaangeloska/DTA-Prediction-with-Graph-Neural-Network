@@ -4,8 +4,9 @@ import os
 import pandas as pd
 import torch
 
-from Paths import DatasetPaths, paths_for
-from Protein_Embeddings import (
+from src.common.paths import DatasetPaths, paths_for
+from src.common.structure_sets import add_pdb_set_arg
+from src.sequence.protein_embeddings import (
     DEFAULT_SEQUENCE_SOURCE,
     MODEL_NAMES,
     build_adapter,
@@ -17,8 +18,7 @@ from Protein_Embeddings import (
     write_json,
     write_sequences,
 )
-from Protein_Representation import pdb_sequence
-from Structure_Sets import add_pdb_set_arg
+from src.structure.protein_representation import pdb_sequence
 
 DATASET = "davis"
 
