@@ -5,6 +5,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 
+import numpy as np
 import torch
 
 # Residues of the structure the GNN branch is built from, so both arms see the same protein.
@@ -131,6 +132,26 @@ class ESMCAdapter(EmbeddingAdapter):
         return output.embeddings[0, 1:-1]
 
 
+class RandomAdapter(EmbeddingAdapter):
+    """Control: a fixed standard normal vector per sequence, carrying identity only."""
+
+    def __init__(self, embedding_dim: int) -> None:
+        super().__init__(embedding_dim, max_residues=None)
+
+    def load(self, device: torch.device) -> None:
+        self.device = device
+
+    def _per_residue(self, sequence: str) -> torch.Tensor:
+        raise NotImplementedError("RandomAdapter has no per-residue embedding")
+
+    def embed(self, sequence: str) -> torch.Tensor:
+        # Seeded from the sequence alone, so identical sequences get identical vectors.
+        seed = int(hashlib.sha256(sequence.encode()).hexdigest()[:16], 16)
+        vector = np.random.default_rng(seed).standard_normal(self.embedding_dim)
+        # One row, so mean pooling returns the drawn vector unchanged.
+        return torch.from_numpy(vector).float().unsqueeze(0)
+
+
 ADAPTERS: dict[str, Callable[[], EmbeddingAdapter]] = {
     "esmc_300m": lambda: ESMCAdapter("esmc_300m", embedding_dim=960),
     "esmc_600m": lambda: ESMCAdapter("esmc_600m", embedding_dim=1152),
@@ -161,6 +182,7 @@ ADAPTERS: dict[str, Callable[[], EmbeddingAdapter]] = {
         leading_special_tokens=1,
         prottrans_input=True,
     ),
+    "random_1024": lambda: RandomAdapter(embedding_dim=1024),
 }
 
 MODEL_NAMES = tuple(sorted(ADAPTERS))
