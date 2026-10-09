@@ -116,14 +116,19 @@ if __name__ == "__main__":
     cuda_name = "cuda:0"
     TEST_BATCH_SIZE = 512
 
-    PATHS = paths_for(dataset, args.pdb_set)
+    PATHS = paths_for(dataset, args.pdb_set, args.split)
     condition = build_condition(
         args.protein_repr, args.plm_model, args.standardize, dataset, PATHS
     )
     model_st = condition.model_name
     suffix = tag_suffix(
         run_tag(
-            args.protein_repr, args.plm_model, args.seed, args.standardize, args.pdb_set
+            args.protein_repr,
+            args.plm_model,
+            args.seed,
+            args.standardize,
+            args.pdb_set,
+            args.split,
         )
     )
     results_path = PATHS.results

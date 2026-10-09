@@ -1,7 +1,6 @@
 import argparse
 import os
 
-import pandas as pd
 import torch
 
 from src.common.paths import DatasetPaths, paths_for
@@ -18,14 +17,9 @@ from src.sequence.protein_embeddings import (
     write_json,
     write_sequences,
 )
-from src.structure.protein_representation import pdb_sequence
+from src.structure.protein_representation import pdb_sequences
 
 DATASET = "davis"
-
-
-def pdb_sequences(paths: DatasetPaths) -> dict[str, str]:
-    names = pd.read_csv(paths.csv)["protein"].unique()
-    return {name: pdb_sequence(paths.pdb_file(name)) for name in names}
 
 
 def full_sequences(paths: DatasetPaths) -> dict[str, str]:

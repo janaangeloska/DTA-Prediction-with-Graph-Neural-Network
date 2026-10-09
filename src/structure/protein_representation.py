@@ -11,7 +11,7 @@ import pandas as pd
 from Bio.SeqUtils import seq1
 from scipy.spatial.distance import pdist, squareform
 
-from src.common.paths import paths_for
+from src.common.paths import DatasetPaths, paths_for
 from src.common.structure_sets import add_pdb_set_arg
 
 pro_res_table = [
@@ -236,6 +236,11 @@ def pdb_sequence(pdb_file: str) -> str:
     # Same residue walk as the contact map, so the sequence matches the graph's nodes.
     _, residue_info = generate_contact_map(pdb_file)
     return seq1("".join(residue_name for _, _, residue_name in residue_info))
+
+
+def pdb_sequences(paths: DatasetPaths) -> dict[str, str]:
+    names = pd.read_csv(paths.csv)["protein"].unique()
+    return {name: pdb_sequence(paths.pdb_file(name)) for name in names}
 
 
 def process_pdb_files(

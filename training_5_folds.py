@@ -9,7 +9,11 @@ from torch.utils.data import Dataset
 
 from src.common.checkpointing import checkpoint_path, load_checkpoint, save_checkpoint
 from src.common.conditions import Condition, build_condition
-from src.common.creating_train_and_test_set import load_fold_indices, load_test_indices
+from src.common.creating_train_and_test_set import (
+    load_fold_indices,
+    load_test_indices,
+    pair_table,
+)
 from src.common.dta_dataset import DataLoader, predicting, train
 from src.common.emetrics import get_mse
 from src.common.paths import DatasetPaths, paths_for
@@ -28,7 +32,6 @@ CHECKPOINT_EVERY_EPOCHS = 10
 EARLY_STOP_PATIENCE = 100
 # Checkpoint identity for the full-data model, outside the CV fold range 0-4.
 FULL_FOLD = -1
-FULL_TRAIN_ROWS = 25046
 
 
 def make_train_loader(
@@ -159,11 +162,14 @@ def run_fold(
 
 def check_full_split(n_rows: int, paths: DatasetPaths) -> None:
     train_idx = {i for fold in load_fold_indices(paths.train_folds) for i in fold}
-    assert n_rows == len(train_idx) == FULL_TRAIN_ROWS, (
+    test_idx = set(load_test_indices(paths.test_fold))
+    n_pairs = len(pair_table(paths.csv).labels)
+    # Every pair outside the test fold trains the full model, in any split.
+    assert n_rows == len(train_idx) == n_pairs - len(test_idx), (
         f"Full training set has {n_rows} rows ({len(train_idx)} unique indices), "
-        f"expected {FULL_TRAIN_ROWS}"
+        f"expected {n_pairs} pairs minus {len(test_idx)} test rows"
     )
-    assert train_idx.isdisjoint(load_test_indices(paths.test_fold)), (
+    assert train_idx.isdisjoint(test_idx), (
         "Full training set shares indices with the test fold"
     )
 
@@ -268,7 +274,7 @@ def main() -> None:
     else:
         print("Epochs: ", args.epochs)
 
-    paths = paths_for(dataset, args.pdb_set)
+    paths = paths_for(dataset, args.pdb_set, args.split)
     print("Data root: ", paths.root)
     os.makedirs(paths.models, exist_ok=True)
     os.makedirs(paths.results, exist_ok=True)
@@ -277,7 +283,12 @@ def main() -> None:
     print("Using device:", device)
 
     tag = run_tag(
-        args.protein_repr, args.plm_model, args.seed, args.standardize, args.pdb_set
+        args.protein_repr,
+        args.plm_model,
+        args.seed,
+        args.standardize,
+        args.pdb_set,
+        args.split,
     )
     print("Run tag: ", tag or "(none)")
     condition = build_condition(

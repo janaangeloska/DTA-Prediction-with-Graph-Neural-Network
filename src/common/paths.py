@@ -2,6 +2,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from src.common.split_sets import DEFAULT_SPLIT, SPLITS
 from src.common.structure_sets import DEFAULT_STRUCTURE_SET, STRUCTURE_SETS
 
 ROOT_ENV_VAR = "DTA_DATA_ROOT"
@@ -19,6 +20,7 @@ class DatasetPaths:
     root: str
     dataset_dir: str
     csv: str
+    splits: str
     train_folds: str
     test_fold: str
     pdb_set: str
@@ -37,10 +39,16 @@ class DatasetPaths:
 
 
 def paths_for(
-    dataset: str = "davis", pdb_set: str = DEFAULT_STRUCTURE_SET
+    dataset: str = "davis",
+    pdb_set: str = DEFAULT_STRUCTURE_SET,
+    split: str = DEFAULT_SPLIT,
 ) -> DatasetPaths:
     root = data_root()
     dataset_dir = os.path.join(root, "data", dataset)
+    splits = os.path.join(dataset_dir, "splits")
+    fold_dir = dataset_dir
+    if SPLITS[split].dir_name:
+        fold_dir = os.path.join(splits, SPLITS[split].dir_name)
     structure_set = STRUCTURE_SETS[pdb_set]
     suffix = structure_set.dir_suffix
     protein_graphs = os.path.join(dataset_dir, f"protein_graphs{suffix}")
@@ -48,8 +56,9 @@ def paths_for(
         root=root,
         dataset_dir=dataset_dir,
         csv=os.path.join(dataset_dir, f"{dataset}.csv"),
-        train_folds=os.path.join(dataset_dir, "train_folds.txt"),
-        test_fold=os.path.join(dataset_dir, "test_fold.txt"),
+        splits=splits,
+        train_folds=os.path.join(fold_dir, "train_folds.txt"),
+        test_fold=os.path.join(fold_dir, "test_fold.txt"),
         pdb_set=pdb_set,
         pdb=os.path.join(dataset_dir, f"pdb{suffix}"),
         pdb_file_stems=structure_set.file_stems,

@@ -1,6 +1,7 @@
 import argparse
 
 from src.common.seeding import SEED
+from src.common.split_sets import DEFAULT_SPLIT, SPLITS, add_split_arg
 from src.common.structure_sets import (
     DEFAULT_STRUCTURE_SET,
     STRUCTURE_SETS,
@@ -32,6 +33,7 @@ def add_run_args(parser: argparse.ArgumentParser) -> None:
         help="Standardize each embedding dimension across proteins, plm only.",
     )
     add_pdb_set_arg(parser)
+    add_split_arg(parser)
     parser.add_argument("--seed", type=int, default=SEED)
 
 
@@ -53,10 +55,13 @@ def run_tag(
     seed: int,
     standardize: bool = False,
     pdb_set: str = DEFAULT_STRUCTURE_SET,
+    split: str = DEFAULT_SPLIT,
 ) -> str:
     parts = [plm_model] if protein_repr == "plm" else []
     if STRUCTURE_SETS[pdb_set].tag:
         parts.append(STRUCTURE_SETS[pdb_set].tag)
+    if SPLITS[split].tag:
+        parts.append(SPLITS[split].tag)
     if standardize:
         parts.append("z")
     if seed != SEED:

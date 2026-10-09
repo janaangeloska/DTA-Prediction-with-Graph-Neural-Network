@@ -24,10 +24,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    paths = paths_for(DATASET, args.pdb_set)
+    paths = paths_for(DATASET, args.pdb_set, args.split)
     model_name = MODEL_CLASS_NAMES[args.protein_repr]
     tag = run_tag(
-        args.protein_repr, args.plm_model, args.seed, args.standardize, args.pdb_set
+        args.protein_repr,
+        args.plm_model,
+        args.seed,
+        args.standardize,
+        args.pdb_set,
+        args.split,
     )
     with open(paths.train_folds) as file:
         n_folds = len(json.load(file))
