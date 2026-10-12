@@ -39,6 +39,9 @@ pro_res_table = [
 ]
 amino_acids_set = set(pro_res_table)
 
+REWIRE_SWAPS_PER_EDGE = 3
+REWIRE_TRIES_PER_SWAP = 10
+
 pro_res_aliphatic_table = ["ALA", "VAL", "LEU", "ILE", "MET"]
 pro_res_aromatic_table = ["PHE", "TYR", "TRP"]
 pro_res_polar_neutral_table = ["SER", "THR", "ASN", "GLN", "CYS"]
@@ -370,6 +373,22 @@ def contact_map_to_graph(contact_map, residue_info, pro_seq):
             if contact_map[i, j]:
                 G.add_edge(i, j)
     return G
+
+
+def self_loop_edges(size: int) -> list[list[int]]:
+    return [[i, i] for i in range(size)]
+
+
+def rewired_edges(size: int, edge_index: list[list[int]], seed: int) -> list[list[int]]:
+    """Degree-preserving random rewiring of a contact graph, both directions per edge."""
+    graph = nx.Graph()
+    graph.add_nodes_from(range(size))
+    graph.add_edges_from(edge_index)
+    nswap = REWIRE_SWAPS_PER_EDGE * graph.number_of_edges()
+    nx.double_edge_swap(
+        graph, nswap=nswap, max_tries=REWIRE_TRIES_PER_SWAP * nswap, seed=seed
+    )
+    return [[s, t] for u, v in graph.edges for s, t in ((u, v), (v, u))]
 
 
 def plot_graph(G, title, output_path=None):

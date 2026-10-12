@@ -241,15 +241,9 @@ def cache_embedding(
 ) -> None:
     if is_cached(cache_dir, model_name, sequence, keep_residues):
         return
-    per_residue_file = residues_path(cache_dir, model_name, sequence)
-    if os.path.exists(per_residue_file):
-        per_residue = torch.load(
-            per_residue_file, map_location="cpu", weights_only=True
-        )
-    else:
-        per_residue = adapter.embed(sequence)
+    per_residue = adapter.embed(sequence)
     if keep_residues:
-        save_once(per_residue, per_residue_file)
+        save_once(per_residue.half(), residues_path(cache_dir, model_name, sequence))
     save_once(mean_pool(per_residue), pooled_path(cache_dir, model_name, sequence))
 
 
@@ -311,6 +305,22 @@ def read_sequences(
     return record["sequences"]
 
 
+def require_cached(
+    sequences: dict[str, str],
+    path_for: Callable[[str], str],
+    description: str,
+    command: str,
+) -> None:
+    missing = [
+        name for name, sequence in sequences.items() if not os.path.exists(path_for(sequence))
+    ]
+    if missing:
+        raise FileNotFoundError(
+            f"{len(missing)} of {len(sequences)} proteins have no {description}, "
+            f"for example {missing[0]}. Run {command}."
+        )
+
+
 def load_pooled_embeddings(
     cache_dir: str,
     model_name: str,
@@ -320,18 +330,13 @@ def load_pooled_embeddings(
 ) -> dict[str, torch.Tensor]:
     embedding_dim = build_adapter(model_name).embedding_dim
     sequences = read_sequences(cache_dir, sequence_source, pdb_file)
-    missing = [
-        name
-        for name, sequence in sequences.items()
-        if not os.path.exists(pooled_path(cache_dir, model_name, sequence))
-    ]
-    if missing:
-        raise FileNotFoundError(
-            f"{len(missing)} of {len(sequences)} proteins have no {model_name} "
-            f"embedding in {cache_dir}, for example {missing[0]}. Run "
-            f"compute_protein_embeddings.py --model {model_name} "
-            f"--sequence-source {sequence_source}."
-        )
+    require_cached(
+        sequences,
+        lambda sequence: pooled_path(cache_dir, model_name, sequence),
+        f"{model_name} embedding in {cache_dir}",
+        f"compute_protein_embeddings.py --model {model_name} "
+        f"--sequence-source {sequence_source}",
+    )
     # Davis variants share their wild-type structure, so many names map to one sequence.
     pooled_by_sequence: dict[str, torch.Tensor] = {}
     for sequence in sorted(set(sequences.values())):
@@ -344,6 +349,33 @@ def load_pooled_embeddings(
     if standardize:
         pooled_by_sequence = standardize_vectors(pooled_by_sequence)
     return {name: pooled_by_sequence[seq] for name, seq in sequences.items()}
+
+
+def load_residue_embeddings(
+    cache_dir: str,
+    model_name: str,
+    pdb_file: Callable[[str], str],
+) -> dict[str, torch.Tensor]:
+    """Per-residue [L, D] float16 embeddings of the PDB sequences, keyed by Davis name."""
+    embedding_dim = build_adapter(model_name).embedding_dim
+    sequences = read_sequences(cache_dir, DEFAULT_SEQUENCE_SOURCE, pdb_file)
+    require_cached(
+        sequences,
+        lambda sequence: residues_path(cache_dir, model_name, sequence),
+        f"per-residue {model_name} embedding in {cache_dir}",
+        f"compute_protein_embeddings.py --model {model_name} --keep-residues",
+    )
+    residues_by_sequence: dict[str, torch.Tensor] = {}
+    for sequence in sorted(set(sequences.values())):
+        path = residues_path(cache_dir, model_name, sequence)
+        residues = torch.load(path, map_location="cpu", weights_only=True).half()
+        expected = (len(sequence), embedding_dim)
+        if tuple(residues.shape) != expected:
+            raise ValueError(
+                f"{path} holds shape {tuple(residues.shape)}, expected {expected}"
+            )
+        residues_by_sequence[sequence] = residues
+    return {name: residues_by_sequence[seq] for name, seq in sequences.items()}
 
 
 def standardize_vectors(vectors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:

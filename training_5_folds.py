@@ -232,7 +232,7 @@ def run_full(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=f"Train GNNNet or PLMNet on {dataset}."
+        description=f"Train GNNNet, PLMNet or HybridNet on {dataset}."
     )
     parser.add_argument(
         "--mode",

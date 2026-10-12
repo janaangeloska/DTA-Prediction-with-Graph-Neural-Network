@@ -126,10 +126,28 @@ def split_indices(
     return train_idx, val_idx
 
 
+def residue_alignment_mismatches(
+    graphs: dict[str, tuple[int, list, list]], residues: dict[str, torch.Tensor]
+) -> dict[str, tuple[int, int | None]]:
+    """Proteins whose graph node count differs from their embedded length, or lack one."""
+    mismatches = {}
+    for name, (size, _, _) in graphs.items():
+        length = residues[name].shape[0] if name in residues else None
+        if length != size:
+            mismatches[name] = (size, length)
+    return mismatches
+
+
 def create_structure_dataset(
-    dataset_name: str, indices: Sequence[int], paths: DatasetPaths
+    dataset_name: str,
+    indices: Sequence[int],
+    paths: DatasetPaths,
+    target_graph: dict[str, tuple[int, list, list]] | None = None,
+    target_residues: dict[str, torch.Tensor] | None = None,
 ) -> DTADataset:
     table = pair_table(paths.csv)
+    if target_graph is None:
+        target_graph = protein_graphs(paths.protein_graph_gml)
     return DTADataset(
         root="/tmp",
         dataset=dataset_name,
@@ -137,7 +155,8 @@ def create_structure_dataset(
         y=np.array(table.labels)[indices].tolist(),
         smile_graph=ligand_graphs(paths.ligand_graphs),
         target_key=np.array(table.proteins)[indices].tolist(),
-        target_graph=protein_graphs(paths.protein_graph_gml),
+        target_graph=target_graph,
+        target_residues=target_residues,
     )
 
 
@@ -146,12 +165,18 @@ def create_dataset_for_5folds(
     paths: DatasetPaths,
     combine_all: bool = False,
     fold_idx: int = 0,
+    target_graph: dict[str, tuple[int, list, list]] | None = None,
+    target_residues: dict[str, torch.Tensor] | None = None,
 ) -> tuple[DTADataset, DTADataset | None]:
     train_idx, val_idx = split_indices(paths.train_folds, combine_all, fold_idx)
-    train_dataset = create_structure_dataset(dataset_name + "_train", train_idx, paths)
+    train_dataset = create_structure_dataset(
+        dataset_name + "_train", train_idx, paths, target_graph, target_residues
+    )
     val_dataset = None
     if not combine_all:
-        val_dataset = create_structure_dataset(dataset_name + "_valid", val_idx, paths)
+        val_dataset = create_structure_dataset(
+            dataset_name + "_valid", val_idx, paths, target_graph, target_residues
+        )
     return train_dataset, val_dataset
 
 
@@ -164,9 +189,16 @@ def load_test_indices(test_fold_file):
     return test_indices
 
 
-def create_test_dataset(dataset_name: str, paths: DatasetPaths) -> DTADataset:
+def create_test_dataset(
+    dataset_name: str,
+    paths: DatasetPaths,
+    target_graph: dict[str, tuple[int, list, list]] | None = None,
+    target_residues: dict[str, torch.Tensor] | None = None,
+) -> DTADataset:
     test_indices = load_test_indices(paths.test_fold)
-    test_dataset = create_structure_dataset(dataset_name + "_test", test_indices, paths)
+    test_dataset = create_structure_dataset(
+        dataset_name + "_test", test_indices, paths, target_graph, target_residues
+    )
     print(f"Test dataset created with {len(test_indices)} samples.")
     return test_dataset
 

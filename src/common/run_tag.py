@@ -7,11 +7,19 @@ from src.common.structure_sets import (
     STRUCTURE_SETS,
     add_pdb_set_arg,
 )
+from src.hybrid.hybrid_net import HybridNet
 from src.sequence.plm_net import PLMNet
 from src.sequence.protein_embeddings import MODEL_NAMES
 from src.structure.gnn_net import GNNNet
 
-MODEL_CLASS_NAMES = {"structure": GNNNet.__name__, "plm": PLMNet.__name__}
+HYBRID_REPRS = ("hybrid", "hybrid_noedges", "hybrid_shuffled")
+EMBEDDING_REPRS = ("plm", *HYBRID_REPRS)
+
+MODEL_CLASS_NAMES = {
+    "structure": GNNNet.__name__,
+    "plm": PLMNet.__name__,
+    **dict.fromkeys(HYBRID_REPRS, HybridNet.__name__),
+}
 
 
 def add_run_args(parser: argparse.ArgumentParser) -> None:
@@ -20,12 +28,16 @@ def add_run_args(parser: argparse.ArgumentParser) -> None:
         choices=sorted(MODEL_CLASS_NAMES),
         default="structure",
         help="structure: AlphaFold contact-map graph. "
-        "plm: pooled embedding from a frozen protein language model.",
+        "plm: pooled embedding from a frozen protein language model. "
+        "hybrid: contact-map graph with per-residue embeddings added to the nodes. "
+        "hybrid_noedges: the same nodes with self-loops only. "
+        "hybrid_shuffled: the same nodes on a degree-preserving rewiring of the contacts.",
     )
     parser.add_argument(
         "--plm-model",
         choices=MODEL_NAMES,
-        help="Protein language model, required with --protein-repr plm.",
+        help=f"Protein language model, required with --protein-repr "
+        f"{', '.join(EMBEDDING_REPRS)}.",
     )
     parser.add_argument(
         "--standardize",
@@ -38,13 +50,16 @@ def add_run_args(parser: argparse.ArgumentParser) -> None:
 
 
 def check_run_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.protein_repr == "plm" and args.plm_model is None:
+    uses_embeddings = args.protein_repr in EMBEDDING_REPRS
+    if uses_embeddings and args.plm_model is None:
         parser.error(
-            f"--plm-model is required with --protein-repr plm, "
+            f"--plm-model is required with --protein-repr {args.protein_repr}, "
             f"choose from: {', '.join(MODEL_NAMES)}"
         )
-    if args.protein_repr != "plm" and args.plm_model is not None:
-        parser.error("--plm-model only applies to --protein-repr plm")
+    if not uses_embeddings and args.plm_model is not None:
+        parser.error(
+            f"--plm-model only applies to --protein-repr {', '.join(EMBEDDING_REPRS)}"
+        )
     if args.protein_repr != "plm" and args.standardize:
         parser.error("--standardize only applies to --protein-repr plm")
 
@@ -57,7 +72,9 @@ def run_tag(
     pdb_set: str = DEFAULT_STRUCTURE_SET,
     split: str = DEFAULT_SPLIT,
 ) -> str:
-    parts = [plm_model] if protein_repr == "plm" else []
+    parts = [protein_repr] if protein_repr in HYBRID_REPRS else []
+    if protein_repr in EMBEDDING_REPRS:
+        parts.append(plm_model)
     if STRUCTURE_SETS[pdb_set].tag:
         parts.append(STRUCTURE_SETS[pdb_set].tag)
     if SPLITS[split].tag:

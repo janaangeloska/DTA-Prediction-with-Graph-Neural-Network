@@ -100,7 +100,7 @@ def plot_density(Y, P, dataset, results_path, fold, suffix=""):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Score trained GNNNet or PLMNet models on the test set."
+        description="Score trained GNNNet, PLMNet or HybridNet models on the test set."
     )
     parser.add_argument(
         "--full",

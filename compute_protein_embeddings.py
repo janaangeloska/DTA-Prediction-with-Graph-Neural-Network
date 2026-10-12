@@ -58,7 +58,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--keep-residues",
         action="store_true",
-        help="Also store the per-residue [L, D] tensor next to the pooled [D] vector.",
+        help="Also store the per-residue [L, D] tensor, in float16, next to the pooled [D] "
+        "vector. Needed by the hybrid arms.",
     )
     add_pdb_set_arg(parser)
     return parser.parse_args()

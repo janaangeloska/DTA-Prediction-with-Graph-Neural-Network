@@ -1,3 +1,4 @@
+import hashlib
 import random
 
 import numpy as np
@@ -15,3 +16,7 @@ def set_seed(seed: int = SEED) -> None:
     torch.backends.cudnn.benchmark = False
     # warn_only because some CUDA scatter kernels used by GCNConv have no deterministic variant.
     torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def text_seed(text: str) -> int:
+    return int(hashlib.sha256(text.encode()).hexdigest()[:16], 16)

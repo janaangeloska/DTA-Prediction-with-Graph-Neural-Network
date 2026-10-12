@@ -64,5 +64,20 @@ python training_5_folds.py --protein-repr plm --plm-model esmc_300m --pdb-set ki
 
 Reporting, `--mode full` and testing take the same flags as above.
 
+## Hybrid arm
+
+Keeps the contact-map graph and GNNNet's protein trunk, and appends a learned 64-d projection of
+each residue's frozen language model embedding to the 33 base node features (`HybridNet` in
+`src/hybrid/hybrid_net.py`). `hybrid_noedges` keeps only self-loops and `hybrid_shuffled` rewires
+the contacts at random with every node degree kept, as controls for the edges.
+
+```bash
+python compute_protein_embeddings.py --model esmc_300m --pdb-set kinase_domain --keep-residues
+python training_5_folds.py --protein-repr hybrid --plm-model esmc_300m --pdb-set kinase_domain
+```
+
+Swap `hybrid` for `hybrid_noedges` or `hybrid_shuffled` for the controls. Reporting, `--mode full`
+and testing take the same flags.
+
 Without `--pdb-set`, the scripts use the full-length structures in `data/davis/pdb/`, kept only to
 reproduce earlier runs.

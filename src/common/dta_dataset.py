@@ -30,11 +30,12 @@ class DTADataset(InMemoryDataset):
         smile_graph=None,
         target_key=None,
         target_graph=None,
+        target_residues=None,
     ):
 
         super(DTADataset, self).__init__(root, transform, pre_transform)
         self.dataset = dataset
-        self.process(xd, target_key, y, smile_graph, target_graph)
+        self.process(xd, target_key, y, smile_graph, target_graph, target_residues)
 
     @property
     def raw_file_names(self):
@@ -56,7 +57,15 @@ class DTADataset(InMemoryDataset):
         if not os.path.exists(self.processed_dir):
             os.makedirs(self.processed_dir)
 
-    def process(self, xd, target_key, y, smile_graph, target_graph):
+    def process(
+        self,
+        xd: Sequence[str],
+        target_key: Sequence[str],
+        y: Sequence[float],
+        smile_graph: dict[str, tuple[int, list, list]],
+        target_graph: dict[str, tuple[int, list, list]],
+        target_residues: dict[str, torch.Tensor] | None = None,
+    ) -> None:
         assert len(xd) == len(target_key) and len(xd) == len(y), (
             "The three lists must be the same length!"
         )
@@ -93,6 +102,8 @@ class DTADataset(InMemoryDataset):
                 y=torch.FloatTensor([labels]),
             )
             GCNData_pro.__setitem__("target_size", pro_size)
+            if target_residues is not None:
+                GCNData_pro.residue_emb = target_residues[tar_key]
             data_list_mol.append(GCNData_mol)
             data_list_pro.append(GCNData_pro)
 
