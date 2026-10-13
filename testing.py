@@ -3,10 +3,14 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 
 from src.common.conditions import build_condition
-from src.common.creating_train_and_test_set import load_fold_indices
+from src.common.creating_train_and_test_set import (
+    load_fold_indices,
+    load_test_indices,
+)
 from src.common.dta_dataset import *
 from src.common.emetrics import (
     get_ci,
@@ -18,6 +22,7 @@ from src.common.emetrics import (
     get_spearman,
 )
 from src.common.paths import paths_for
+from src.common.predictions import prediction_table
 from src.common.run_tag import add_run_args, check_run_args, run_tag, tag_suffix
 from src.common.seeding import set_seed
 
@@ -107,6 +112,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Score the full-data model instead of the five fold models.",
     )
+    parser.add_argument(
+        "--save-predictions",
+        action="store_true",
+        help="Also write the per-row test predictions of every scored model to a csv.",
+    )
+    parser.add_argument(
+        "--predictions-only",
+        action="store_true",
+        help="Write only the predictions csv, leaving result files and plots untouched.",
+    )
     add_run_args(parser)
     args = parser.parse_args()
     check_run_args(parser, args)
@@ -121,16 +136,16 @@ if __name__ == "__main__":
         args.protein_repr, args.plm_model, args.standardize, dataset, PATHS
     )
     model_st = condition.model_name
-    suffix = tag_suffix(
-        run_tag(
-            args.protein_repr,
-            args.plm_model,
-            args.seed,
-            args.standardize,
-            args.pdb_set,
-            args.split,
-        )
+    tag = run_tag(
+        args.protein_repr,
+        args.plm_model,
+        args.seed,
+        args.standardize,
+        args.pdb_set,
+        args.split,
     )
+    suffix = tag_suffix(tag)
+    save_predictions = args.save_predictions or args.predictions_only
     results_path = PATHS.results
     os.makedirs(results_path, exist_ok=True)
     device = torch.device(cuda_name if torch.cuda.is_available() else "cpu")
@@ -155,7 +170,9 @@ if __name__ == "__main__":
         fold_labels = list(range(len(load_fold_indices(PATHS.train_folds))))
         result_suffix = ""
 
+    test_indices = load_test_indices(PATHS.test_fold)
     per_fold = {}
+    prediction_tables = []
     for fold in fold_labels:
         model_file_name = os.path.join(
             PATHS.models, f"model_{model_st}_{dataset}{suffix}_{fold}.model"
@@ -172,7 +189,14 @@ if __name__ == "__main__":
         print(f"Fold {fold} metrics:")
         for name in METRIC_NAMES:
             print(f"  {name}: {per_fold[fold][name]}")
-        plot_density(Y, P, dataset, results_path, fold, suffix)
+        if save_predictions:
+            prediction_tables.append(
+                prediction_table(
+                    PATHS.csv, test_indices, Y, P, fold, tag, args.seed, args.split
+                )
+            )
+        if not args.predictions_only:
+            plot_density(Y, P, dataset, results_path, fold, suffix)
 
     if not per_fold:
         raise SystemExit("No fold models found, nothing to evaluate.")
@@ -180,9 +204,16 @@ if __name__ == "__main__":
     report = format_report(per_fold, dataset)
     print()
     print(report)
-    result_file_name = os.path.join(
-        results_path, f"result_{model_st}_{dataset}{suffix}{result_suffix}.txt"
-    )
-    with open(result_file_name, "w") as file:
-        file.write(report + "\n")
-    print(f"\nWrote {result_file_name}")
+    if save_predictions:
+        predictions_file_name = os.path.join(
+            results_path, f"predictions_{model_st}_{dataset}{suffix}{result_suffix}.csv"
+        )
+        pd.concat(prediction_tables).to_csv(predictions_file_name, index=False)
+        print(f"\nWrote {predictions_file_name}")
+    if not args.predictions_only:
+        result_file_name = os.path.join(
+            results_path, f"result_{model_st}_{dataset}{suffix}{result_suffix}.txt"
+        )
+        with open(result_file_name, "w") as file:
+            file.write(report + "\n")
+        print(f"\nWrote {result_file_name}")
