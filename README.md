@@ -1,15 +1,16 @@
 # DTA-Prediction-with-Graph-Neural-Network
-This repository contains code and resources for replicatin the work described in the paper "Drug–Target Affinity Prediction using Graph Neural Network and Contact Maps" (RSC Advances, 2020). In this project, I changed the protein representation by using contact maps derived from AlphaFold-generated PDB files.
+This repository contains code and resources for replicating the work described in the paper "Drug–Target Affinity Prediction using Graph Neural Network and Contact Maps" (RSC Advances, 2020). In this project, I changed the protein representation by using contact maps derived from AlphaFold-generated PDB files.
 
 ## Layout
 
-- `src/common/`: paths, seeding, run tags, dataset building, checkpoints, metrics and drug graphs
-  (`drug_representation.py`).
+- `src/common/`: paths, seeding, run tags, dataset building, checkpoints, metrics, prediction
+  export, drug graphs (`drug_representation.py`) and the cold splits (`splits.py`).
 - `src/structure/`: protein contact-map graphs (`protein_representation.py`) and the GNN model
   (`GNNNet` in `gnn_net.py`).
 - `src/sequence/`: protein language model embeddings (`protein_embeddings.py`) and the embedding
   model (`PLMNet` in `plm_net.py`).
-- `notebooks/`: Colab notebooks.
+- `src/hybrid/`: the contact-map graph model with per-residue embeddings (`HybridNet` in
+  `hybrid_net.py`).
 - Entry scripts stay at the root: `training_5_folds.py`, `testing.py`, `report_best_epochs.py`,
   `compute_protein_embeddings.py`.
 
@@ -29,6 +30,9 @@ Run every command from the repository root. On Colab, `cd` into the repository f
 
 To keep data and outputs somewhere else, for example a mounted Google Drive folder on Colab, set
 `DTA_DATA_ROOT` to that folder before running any script.
+
+Without `--pdb-set`, the scripts use the full-length structures in `data/davis/pdb/`, kept only to
+reproduce earlier runs.
 
 ## Build the graphs
 
@@ -51,11 +55,32 @@ python testing.py --pdb-set kinase_domain --full
 `models_davis/`, metrics and plots to `results_davis/`. A fold restarts from its checkpoint if one
 exists.
 
+`testing.py --save-predictions` also writes the per-row test predictions to `results_davis/`, and
+`--predictions-only` writes only those. `--seed` sets the run seed, and a non-default seed is added
+to the output file names.
+
+## Splits
+
+`--split` picks the folds: `random` (default, the train and test folds above), `cold_protein`
+(whole clusters of near-identical protein sequences held out) or `cold_family` (whole clusters of
+related kinases held out). The cold splits are built once from the `kinase_domain` sequences and
+written to `data/davis/splits/<split>/`:
+
+```bash
+python -m src.common.splits --split cold_protein
+python -m src.common.splits --split cold_family
+python training_5_folds.py --pdb-set kinase_domain --split cold_protein
+```
+
+Reporting, `--mode full` and testing take the same `--split` flag.
+
 ## Protein language model arm
 
 Replaces the protein graph with the mean-pooled embedding of a frozen protein language model:
 `esmc_300m`, `esmc_600m`, `prot_t5_xl_uniref50`, `esm2_650m` or `protbert`. ESM C needs
-`pip install esm`, the others `pip install transformers sentencepiece`.
+`pip install esm`, the others `pip install transformers sentencepiece`. `random_1024` is a control:
+a fixed random vector per sequence, so it carries protein identity and nothing else. `--standardize`
+standardizes each embedding dimension across proteins.
 
 ```bash
 python compute_protein_embeddings.py --model esmc_300m --pdb-set kinase_domain
@@ -77,7 +102,5 @@ python training_5_folds.py --protein-repr hybrid --plm-model esmc_300m --pdb-set
 ```
 
 Swap `hybrid` for `hybrid_noedges` or `hybrid_shuffled` for the controls. Reporting, `--mode full`
-and testing take the same flags.
-
-Without `--pdb-set`, the scripts use the full-length structures in `data/davis/pdb/`, kept only to
-reproduce earlier runs.
+and testing take the same flags. `random_1024` has no per-residue embeddings, so it does not work
+with the hybrid arms.
