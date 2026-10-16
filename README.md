@@ -1,72 +1,106 @@
 # DTA-Prediction-with-Graph-Neural-Network
-This repository contains code and resources for replicatin the work described in the paper "Drug–Target Affinity Prediction using Graph Neural Network and Contact Maps" (RSC Advances, 2020). In this project, I changed the protein representation by using contact maps derived from AlphaFold-generated PDB files.
+This repository contains code and resources for replicating the work described in the paper "Drug–Target Affinity Prediction using Graph Neural Network and Contact Maps" (RSC Advances, 2020). In this project, I changed the protein representation by using contact maps derived from AlphaFold-generated PDB files.
 
-## Paths
+## Layout
 
-Every input and output location derives from a single root, resolved in `Paths.py`. Leave
-`DTA_DATA_ROOT` unset and everything resolves inside this checkout. Set it and the whole run moves,
-which is what lets a Colab session pick up where the last one stopped instead of re-downloading and
-regenerating from scratch.
+- `src/common/`: paths, seeding, run tags, dataset building, checkpoints, metrics, prediction
+  export, drug graphs (`drug_representation.py`) and the cold splits (`splits.py`).
+- `src/structure/`: protein contact-map graphs (`protein_representation.py`) and the GNN model
+  (`GNNNet` in `gnn_net.py`).
+- `src/sequence/`: protein language model embeddings (`protein_embeddings.py`) and the embedding
+  model (`PLMNet` in `plm_net.py`).
+- `src/hybrid/`: the contact-map graph model with per-residue embeddings (`HybridNet` in
+  `hybrid_net.py`).
+- Entry scripts stay at the root: `training_5_folds.py`, `testing.py`, `report_best_epochs.py`,
+  `compute_protein_embeddings.py`.
 
-On Colab, point it at a mounted Drive folder before importing any project module:
-
-```python
-from google.colab import drive
-
-drive.mount("/content/drive")
-
-import os
-
-os.environ["DTA_DATA_ROOT"] = "/content/drive/MyDrive/dta"
-```
-
-The layout under the root is identical either way:
-
-| Path | Holds |
-|---|---|
-| `data/davis/davis.csv` | affinity table |
-| `data/davis/train_folds.txt`, `test_fold.txt` | community fold indices |
-| `data/davis/pdb/` | AlphaFold structures, one per Davis name |
-| `data/davis/contact_maps/` | contact maps, `.npz` |
-| `data/davis/ligand_graphs/` | ligand graphs, `.gml` |
-| `data/davis/protein_graphs/gml/` | protein graphs, `.gml` |
-| `models_davis/` | best model and resume checkpoint, per fold |
-| `results_davis/` | test metrics and density plot |
-
-`training_5_folds.py` writes a resume checkpoint holding model state, optimizer state, epoch and
-fold index, and restarts a fold from that checkpoint when one is present. With `DTA_DATA_ROOT` on
-Drive those checkpoints outlive the session; without it they die with the VM.
+Run every command from the repository root. On Colab, `cd` into the repository folder first so
+`src` is importable.
 
 ## Data
 
-`data/davis/` holds the committed Davis inputs:
+`data/` is not in git. Put these files in `data/davis/`:
 
-- `davis.csv` holds 30,056 rows, columns `ligand` (SMILES), `protein` (Davis kinase name), `label` (pKd).
-  Built from the GraphDTA release of Davis: `Y` holds Kd in nM, and the label is `-log10(Kd / 1e9)`,
-  the same transform DeepDTA and GraphDTA use. Row order is row-major over the 68x442 affinity
-  matrix, so row `i` is ligand `i // 442` and protein `i % 442`, which is the ordering the
-  published fold indices assume.
-- `train_folds.txt` and `test_fold.txt` are verbatim copies of GraphDTA's `train_fold_setting1.txt`
-  and `test_fold_setting1.txt`. These are the standard community splits and are not reshuffled.
+- `davis.csv`: the 30,056 ligand-protein pairs of Davis, columns `ligand`, `protein`, `label`, built
+  from the GraphDTA release with label `-log10(Kd / 1e9)`.
+- `train_folds.txt` and `test_fold.txt`: GraphDTA's `train_fold_setting1.txt` and
+  `test_fold_setting1.txt`, renamed.
+- `pdb_kinase_domain/`: the 442 `.pdb` files from `prot_3d_for_Davis.tar.gz` in
+  receptor-ai/3d-prot-dta, with their original names.
 
-Everything else under `data/davis/` is generated and gitignored.
+To keep data and outputs somewhere else, for example a mounted Google Drive folder on Colab, set
+`DTA_DATA_ROOT` to that folder before running any script.
 
-### Regenerating the protein graphs
+Without `--pdb-set`, the scripts use the full-length structures in `data/davis/pdb/`, kept only to
+reproduce earlier runs.
 
-1. Resolve each Davis protein name to a UniProt accession (strip any parenthetical, then query
-   UniProt for the human reviewed entry). Nine names are aliases or non-human and need an explicit
-   mapping: `ABL1p`→ABL1, `CDK4-cyclinD1`/`CDK4-cyclinD3`→CDK4, `PKAC-alpha`→PRKACA (P17612),
-   `PKAC-beta`→PRKACB, `PFTAIRE2`→CDK15, `PFCDPK1`/`PFPK5`→*P. falciparum*, `PKNB`→*M. tuberculosis*.
-2. Download `https://alphafold.ebi.ac.uk/files/AF-{accession}-F1-model_v6.pdb` for each of the 375
-   unique accessions. Note the version: the older `v4` URLs now return 404.
-3. Save one PDB per Davis name as `data/davis/pdb/{name}.pdb`. The 75 variant names (for example
-   `ABL1(E255K)`) reuse the wild-type structure, since AlphaFold only models the canonical sequence.
-4. Run `python Protein_Representation.py`. It writes contact maps at an 8 A CA-CA cutoff to
-   `data/davis/contact_maps/`, then residue graphs with 33 features per node to
-   `data/davis/protein_graphs/gml/`.
+## Build the graphs
 
-### Regenerating the ligand graphs
+```bash
+python -m src.common.drug_representation
+python -m src.structure.protein_representation --pdb-set kinase_domain
+```
 
-Run `python Drug_Representation.py`. It reads `data/davis/davis.csv` and writes 68 molecular graphs
-with 78 features per node to `data/davis/ligand_graphs/`, named after the sanitized SMILES.
+## Train and test
 
+```bash
+python training_5_folds.py --pdb-set kinase_domain
+python report_best_epochs.py --pdb-set kinase_domain
+python training_5_folds.py --pdb-set kinase_domain --mode full --epochs N
+python testing.py --pdb-set kinase_domain
+python testing.py --pdb-set kinase_domain --full
+```
+
+`N` is the median best epoch printed by `report_best_epochs.py`. Models and checkpoints go to
+`models_davis/`, metrics and plots to `results_davis/`. A fold restarts from its checkpoint if one
+exists.
+
+`testing.py --save-predictions` also writes the per-row test predictions to `results_davis/`, and
+`--predictions-only` writes only those. `--seed` sets the run seed, and a non-default seed is added
+to the output file names.
+
+## Splits
+
+`--split` picks the folds: `random` (default, the train and test folds above), `cold_protein`
+(whole clusters of near-identical protein sequences held out) or `cold_family` (whole clusters of
+related kinases held out). The cold splits are built once from the `kinase_domain` sequences and
+written to `data/davis/splits/<split>/`:
+
+```bash
+python -m src.common.splits --split cold_protein
+python -m src.common.splits --split cold_family
+python training_5_folds.py --pdb-set kinase_domain --split cold_protein
+```
+
+Reporting, `--mode full` and testing take the same `--split` flag.
+
+## Protein language model arm
+
+Replaces the protein graph with the mean-pooled embedding of a frozen protein language model:
+`esmc_300m`, `esmc_600m`, `prot_t5_xl_uniref50`, `esm2_650m` or `protbert`. ESM C needs
+`pip install esm`, the others `pip install transformers sentencepiece`. `random_1024` is a control:
+a fixed random vector per sequence, so it carries protein identity and nothing else. `--standardize`
+standardizes each embedding dimension across proteins.
+
+```bash
+python compute_protein_embeddings.py --model esmc_300m --pdb-set kinase_domain
+python training_5_folds.py --protein-repr plm --plm-model esmc_300m --pdb-set kinase_domain
+```
+
+Reporting, `--mode full` and testing take the same flags as above.
+
+## Hybrid arm
+
+Keeps the contact-map graph and GNNNet's protein trunk, and appends a learned 64-d projection of
+each residue's frozen language model embedding to the 33 base node features (`HybridNet` in
+`src/hybrid/hybrid_net.py`). `hybrid_noedges` keeps only self-loops and `hybrid_shuffled` rewires
+the contacts at random with every node degree kept, as controls for the edges.
+
+```bash
+python compute_protein_embeddings.py --model esmc_300m --pdb-set kinase_domain --keep-residues
+python training_5_folds.py --protein-repr hybrid --plm-model esmc_300m --pdb-set kinase_domain
+```
+
+Swap `hybrid` for `hybrid_noedges` or `hybrid_shuffled` for the controls. Reporting, `--mode full`
+and testing take the same flags. `random_1024` has no per-residue embeddings, so it does not work
+with the hybrid arms.

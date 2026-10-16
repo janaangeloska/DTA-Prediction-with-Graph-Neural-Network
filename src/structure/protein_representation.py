@@ -1,13 +1,18 @@
+import argparse
 import os
 import traceback
+from collections.abc import Mapping
 
 import Bio.PDB
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+import pandas as pd
+from Bio.SeqUtils import seq1
 from scipy.spatial.distance import pdist, squareform
 
-from Paths import paths_for
+from src.common.paths import DatasetPaths, paths_for
+from src.common.structure_sets import add_pdb_set_arg
 
 pro_res_table = [
     "ALA",
@@ -33,6 +38,9 @@ pro_res_table = [
     "SEC",
 ]
 amino_acids_set = set(pro_res_table)
+
+REWIRE_SWAPS_PER_EDGE = 3
+REWIRE_TRIES_PER_SWAP = 10
 
 pro_res_aliphatic_table = ["ALA", "VAL", "LEU", "ILE", "MET"]
 pro_res_aromatic_table = ["PHE", "TYR", "TRP"]
@@ -227,23 +235,31 @@ def generate_contact_map(pdb_file, cutoff=8.0):
     return contact_map, residue_info
 
 
-def process_pdb_directory(input_dir, output_dir, cutoff=8.0):
+def pdb_sequence(pdb_file: str) -> str:
+    # Same residue walk as the contact map, so the sequence matches the graph's nodes.
+    _, residue_info = generate_contact_map(pdb_file)
+    return seq1("".join(residue_name for _, _, residue_name in residue_info))
+
+
+def pdb_sequences(paths: DatasetPaths) -> dict[str, str]:
+    names = pd.read_csv(paths.csv)["protein"].unique()
+    return {name: pdb_sequence(paths.pdb_file(name)) for name in names}
+
+
+def process_pdb_files(
+    pdb_files: Mapping[str, str], output_dir: str, cutoff: float = 8.0
+) -> None:
+    # Outputs are named after the Davis name, not the PDB file, so every set yields the same keys.
     os.makedirs(output_dir, exist_ok=True)
-    for filename in os.listdir(input_dir):
-        if filename.endswith(".pdb"):
-            pdb_path = os.path.join(input_dir, filename)
+    for name, pdb_path in pdb_files.items():
+        try:
+            contact_map, residue_info = generate_contact_map(pdb_path, cutoff)
+            output_file = os.path.join(output_dir, f"{name}_contact_map.npz")
+            np.savez(output_file, contact_map=contact_map, residue_info=residue_info)
 
-            try:
-                contact_map, residue_info = generate_contact_map(pdb_path, cutoff)
-                base_name = os.path.splitext(filename)[0]
-                output_file = os.path.join(output_dir, f"{base_name}_contact_map.npz")
-                np.savez(
-                    output_file, contact_map=contact_map, residue_info=residue_info
-                )
-
-                print(f"Processed {filename}: Contact map saved to {output_file}")
-            except Exception as e:
-                print(f"Error processing {filename}: {e}")
+            print(f"Processed {pdb_path}: Contact map saved to {output_file}")
+        except Exception as e:
+            print(f"Error processing {pdb_path}: {e}")
 
 
 def load_contact_map(npz_file):
@@ -359,6 +375,22 @@ def contact_map_to_graph(contact_map, residue_info, pro_seq):
     return G
 
 
+def self_loop_edges(size: int) -> list[list[int]]:
+    return [[i, i] for i in range(size)]
+
+
+def rewired_edges(size: int, edge_index: list[list[int]], seed: int) -> list[list[int]]:
+    """Degree-preserving random rewiring of a contact graph, both directions per edge."""
+    graph = nx.Graph()
+    graph.add_nodes_from(range(size))
+    graph.add_edges_from(edge_index)
+    nswap = REWIRE_SWAPS_PER_EDGE * graph.number_of_edges()
+    nx.double_edge_swap(
+        graph, nswap=nswap, max_tries=REWIRE_TRIES_PER_SWAP * nswap, seed=seed
+    )
+    return [[s, t] for u, v in graph.edges for s, t in ((u, v), (v, u))]
+
+
 def plot_graph(G, title, output_path=None):
     plt.figure(figsize=(12, 12))
     pos = nx.spring_layout(G, seed=42)
@@ -427,10 +459,18 @@ def process_contact_maps(contact_maps_dir, output_dir=None):
 
 
 if __name__ == "__main__":
-    PATHS = paths_for("davis")
-    input_directory = PATHS.pdb
-    contact_maps = PATHS.contact_maps
-    output_dir = PATHS.protein_graphs
+    parser = argparse.ArgumentParser(
+        description="Build contact maps and residue graphs from the Davis structures."
+    )
+    add_pdb_set_arg(parser)
+    args = parser.parse_args()
 
-    process_pdb_directory(input_directory, contact_maps)
-    process_contact_maps(contact_maps, output_dir)
+    PATHS = paths_for("davis", args.pdb_set)
+    names = pd.read_csv(PATHS.csv)["protein"].unique()
+    pdb_files = {name: PATHS.pdb_file(name) for name in names}
+    missing = [path for path in pdb_files.values() if not os.path.exists(path)]
+    if missing:
+        raise SystemExit(f"{len(missing)} PDB files missing, for example {missing[0]}")
+
+    process_pdb_files(pdb_files, PATHS.contact_maps)
+    process_contact_maps(PATHS.contact_maps, PATHS.protein_graphs)
