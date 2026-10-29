@@ -12,7 +12,11 @@ These are the Google Colab notebooks that ran every experiment in the thesis. Ea
 
 ## How to run
 
-Run the notebooks in order, on Colab with a GPU. Each one uses a Google Drive folder. Notebooks 02 to 08 read files that earlier notebooks wrote, so the order matters.
+The notebooks are meant for Google Colab. They need a GPU and they save everything to Google Drive.
+
+Before you start, copy the code from this repository into each Drive folder from the table below: `training_5_folds.py`, `testing.py`, `compute_protein_embeddings.py`, `report_best_epochs.py` and the `src/` folder. The notebooks do not download the code. They run it from the Drive folder, and they check at the start that the files are there.
+
+Then run the notebooks in order. Each one uses one Drive folder. Notebooks 02 to 08 read files that earlier notebooks wrote, so the order matters.
 
 | Notebook | Drive folder |
 |---|---|
