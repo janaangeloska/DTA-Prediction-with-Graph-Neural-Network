@@ -17,16 +17,49 @@ This repository contains code and resources for replicating the work described i
 Run every command from the repository root. On Colab, `cd` into the repository folder first so
 `src` is importable.
 
+## Notebooks
+
+`notebooks/` holds the Colab notebooks that ran every experiment in the thesis, with their outputs
+saved. They need Google Colab with a GPU. They do not download the code. Each one runs it from a
+Google Drive folder that holds a copy of the four entry scripts and `src/`, and checks at the start
+that the files are there. See [notebooks/README.md](notebooks/README.md) for the folders and the
+order.
+
+- `01_embeddings_esmc600m_prott5.ipynb`: computes the pooled ESM C 600M and ProtT5-XL embeddings.
+- `02_random_split_arms.ipynb`: trains and tests the ProtT5-XL and structure arms on the random
+  split, then compares all four arms.
+- `03_random_split_seeds.ipynb`: retrains the full-data models with seeds 43 and 44.
+- `04_controls.ipynb`: the drug-mean plus protein-mean baseline and the `random_1024` control.
+- `05_cold_protein.ipynb`: all five arms on `cold_protein`.
+- `06_cold_family.ipynb`: all five arms on `cold_family`.
+- `07_hybrid.ipynb`: `hybrid` and `hybrid_noedges` on `cold_protein`.
+- `08_error_analysis.ipynb`: re-scores the finished cold-split models with `--predictions-only`,
+  then scores per protein, per cluster and with a paired cluster bootstrap.
+
+Notebooks 01 to 03 ran on an earlier flat layout, with modules such as `Paths`, `RunTag` and
+`Seeding` at the top level. Those files are not in the repository, so 01 to 03 do not run against
+the current code as they are. Notebooks 04 to 08 import from `src/`.
+
+The hybrid arm was run on `cold_protein` only. `hybrid_shuffled` is in the code but was not run.
+
+Notebook 08 writes its tables to an `analysis/` folder in its Drive folder:
+`per_protein_summary.csv`, `per_cluster_cold_protein.csv`, `per_cluster_cold_family.csv` and
+`bootstrap_differences.csv`.
+
 ## Data
 
-`data/` is not in git. Put these files in `data/davis/`:
+`data/` is not in git, apart from the cold splits in `data/davis/splits/`. Put these files in
+`data/davis/`:
 
-- `davis.csv`: the 30,056 ligand-protein pairs of Davis, columns `ligand`, `protein`, `label`, built
-  from the GraphDTA release with label `-log10(Kd / 1e9)`.
-- `train_folds.txt` and `test_fold.txt`: GraphDTA's `train_fold_setting1.txt` and
-  `test_fold_setting1.txt`, renamed.
-- `pdb_kinase_domain/`: the 442 `.pdb` files from `prot_3d_for_Davis.tar.gz` in
-  receptor-ai/3d-prot-dta, with their original names.
+- `davis.csv`: the 30,056 ligand-protein pairs of Davis, columns `ligand`, `protein`, `label`, with
+  label `-log10(Kd / 1e9)`. Built from the
+  [DGraphDTA data folder](https://github.com/595693085/DGraphDTA/tree/master/data). Its README and
+  the paper link to the original datasets.
+- `train_folds.txt` and `test_fold.txt`: `train_fold_setting1.txt` and `test_fold_setting1.txt`
+  from the same DGraphDTA folder, renamed.
+- `pdb_kinase_domain/`: the 442 AlphaFold `.pdb` files from `prot_3d_for_Davis.tar.gz` in the
+  [receptor-ai/3d-prot-dta data folder](https://github.com/receptor-ai/3d-prot-dta/tree/master/data),
+  with their original names.
 
 To keep data and outputs somewhere else, for example a mounted Google Drive folder on Colab, set
 `DTA_DATA_ROOT` to that folder before running any script.
@@ -52,8 +85,8 @@ python testing.py --pdb-set kinase_domain --full
 ```
 
 `N` is the median best epoch printed by `report_best_epochs.py`. Models and checkpoints go to
-`models_davis/`, metrics and plots to `results_davis/`. A fold restarts from its checkpoint if one
-exists.
+`models_davis/`, metrics and plots to `results_davis/`. A fold or full-data run resumes from its
+checkpoint if one exists.
 
 `testing.py --save-predictions` also writes the per-row test predictions to `results_davis/`, and
 `--predictions-only` writes only those. `--seed` sets the run seed, and a non-default seed is added
@@ -64,7 +97,9 @@ to the output file names.
 `--split` picks the folds: `random` (default, the train and test folds above), `cold_protein`
 (whole clusters of near-identical protein sequences held out) or `cold_family` (whole clusters of
 related kinases held out). The cold splits are built once from the `kinase_domain` sequences and
-written to `data/davis/splits/<split>/`:
+written to `data/davis/splits/<split>/`. The built files are included in the repository. The same
+command regenerates them. If the files already exist, it only checks that the new build matches
+and stops if it does not.
 
 ```bash
 python -m src.common.splits --split cold_protein
